@@ -1,0 +1,52 @@
+﻿<!-- MainWindow.xaml -->
+<Window x:Class="QPLCVisualSimulator.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:QPLCVisualSimulator"
+        Title="QPLC Visual Simulator" Height="700" Width="1000"
+        Loaded="Window_Loaded">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="2*"/>
+            <RowDefinition Height="3*"/>
+        </Grid.RowDefinitions>
+
+        <!-- نوار ابزار -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Content="Run Scan" Click="RunScan_Click" Width="90" Margin="0,0,10,0"/>
+            <Button Content="Tick 100ms" Click="Tick100_Click" Width="90" Margin="0,0,10,0"/>
+            <Button Content="Tick 1000ms" Click="Tick1000_Click" Width="90" Margin="0,0,10,0"/>
+            <Button Content="Reset" Click="Reset_Click" Width="70" Margin="0,0,10,0"/>
+            <Button Content="Ladder/FBD" Click="ToggleView_Click" Width="90" Margin="0,0,10,0"/>
+            <TextBlock Text="Set Variable:" VerticalAlignment="Center" Margin="20,0,5,0"/>
+            <ComboBox x:Name="VariableComboBox" Width="150" Margin="0,0,5,0"/>
+            <ComboBox x:Name="ValueComboBox" Width="100" Margin="0,0,5,0">
+                <ComboBoxItem Content="True" Tag="True"/>
+                <ComboBoxItem Content="False" Tag="False"/>
+            </ComboBox>
+            <Button Content="Apply" Click="ApplyValue_Click" Width="70"/>
+        </StackPanel>
+
+        <!-- نمایش متغیرها -->
+        <GroupBox Grid.Row="1" Header="Variables" Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="1*"/>
+                </Grid.ColumnDefinitions>
+                <GroupBox Grid.Column="0" Header="Boolean Variables">
+                    <ListBox x:Name="BoolListBox"/>
+                </GroupBox>
+                <GroupBox Grid.Column="1" Header="Numeric Variables">
+                    <ListBox x:Name="NumericListBox"/>
+                </GroupBox>
+            </Grid>
+        </GroupBox>
+
+        <!-- نمایش شبکه‌های Ladder / FBD -->
+        <GroupBox Grid.Row="2" Header="Ladder Networks">
+            <local:LadderView x:Name="LadderViewControl"/>
+        </GroupBox>
+    </Grid>
+</Window>

@@ -1,0 +1,39 @@
+[hardware]
+cpu = S7-1214C
+ip = 192.168.0.1
+
+[io]
+# ورودی‌های دیجیتال
+start_button = I0.0:BOOL
+stop_button  = I0.1:BOOL
+emergency   = I0.2:BOOL
+sensor      = I0.3:BOOL
+reset       = I0.4:BOOL
+close_input = I0.5:BOOL
+load        = I0.6:BOOL
+up_input    = I0.7:BOOL
+down_input  = I1.0:BOOL
+reset_updown = I1.1:BOOL
+load_updown  = I1.2:BOOL
+enable      = I1.3:BOOL
+loop_condition = I1.4:BOOL
+
+# خروجی‌های دیجیتال
+motor_run = Q0.0:BOOL
+cooling_valve = Q0.1:BOOL
+timer_output = Q0.2:BOOL
+valve = Q0.3:BOOL
+lamp = Q0.4:BOOL
+done = Q0.5:BOOL
+finished = Q0.6:BOOL
+result = Q0.7:BOOL
+loop_output = Q1.0:BOOL
+
+# متغیرهای عددی
+temperature = IW64:REAL
+speed = QW80:INT
+count = MW10:INT
+
+# آرایه‌ها
+inputs = I0.0:BOOL[4]
+outputs = Q0.0:BOOL[4]

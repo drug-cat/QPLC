@@ -1,0 +1,14 @@
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.GeneratedMSBuildEditorConfig.editorconfig
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.AssemblyInfoInputs.cache
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.AssemblyInfo.cs
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.csproj.CoreCompileInputs.cache
+E:\QPLC\QPLCSimulator\bin\Debug\net8.0\QPLCSimulator.exe
+E:\QPLC\QPLCSimulator\bin\Debug\net8.0\QPLCSimulator.deps.json
+E:\QPLC\QPLCSimulator\bin\Debug\net8.0\QPLCSimulator.runtimeconfig.json
+E:\QPLC\QPLCSimulator\bin\Debug\net8.0\QPLCSimulator.dll
+E:\QPLC\QPLCSimulator\bin\Debug\net8.0\QPLCSimulator.pdb
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.dll
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\refint\QPLCSimulator.dll
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.pdb
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.genruntimeconfig.cache
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\ref\QPLCSimulator.dll

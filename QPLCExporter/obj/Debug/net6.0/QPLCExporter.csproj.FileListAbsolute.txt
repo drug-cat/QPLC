@@ -1,0 +1,5 @@
+E:\QPLC\QPLCExporter\obj\Debug\net6.0\QPLCExporter.csproj.AssemblyReference.cache
+E:\QPLC\QPLCExporter\obj\Debug\net6.0\QPLCExporter.GeneratedMSBuildEditorConfig.editorconfig
+E:\QPLC\QPLCExporter\obj\Debug\net6.0\QPLCExporter.AssemblyInfoInputs.cache
+E:\QPLC\QPLCExporter\obj\Debug\net6.0\QPLCExporter.AssemblyInfo.cs
+E:\QPLC\QPLCExporter\obj\Debug\net6.0\QPLCExporter.csproj.CoreCompileInputs.cache
