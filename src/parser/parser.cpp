@@ -1,458 +1,420 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Shapes;
+#include "parser/parser.h"
 
-namespace QPLCVisualSimulator
-{
-    public partial class LadderView : UserControl
-    {
-        private const double RailLeftX = 30;
-        private const double RailRightX = 850;
-        private const double ElementWidth = 50;      // کاهش از 60 به 50
-        private const double RungHeight = 50;        // کاهش از 60 به 50
-        private const double ContactWidth = 8;
-        private const double ContactHeight = 30;
-        private const double VerticalGap = 20;       // فاصله بین رانگ‌ها
+#include <stdexcept>
 
-        private List<LadderNetwork> networks = new();
-        private LadderSimulator simulator = null!;
+using namespace std;
 
-        public LadderView()
-        {
-            InitializeComponent();
-        }
+namespace {
 
-        public void SetSimulator(LadderSimulator sim)
-        {
-            simulator = sim;
-        }
+// گزارش خطای پارس با موقعیت توکن (main.cpp این exception را catch می‌کند)
+[[noreturn]] void parseError(const Token& tok, const string& msg) {
+    throw runtime_error("Parse error at line " + to_string(tok.line) +
+                        ", col " + to_string(tok.column) + ": " + msg);
+}
 
-        public void DrawNetworks(List<LadderNetwork> nets)
-        {
-            networks = nets;
-            LadderCanvas.Children.Clear();
+bool isComparisonOp(const Token& tok) {
+    return tok.type == TokenType::OPERATOR &&
+           (tok.lexeme == "==" || tok.lexeme == "!=" || tok.lexeme == "<" ||
+            tok.lexeme == ">" || tok.lexeme == "<=" || tok.lexeme == ">=");
+}
 
-            double y = 10;
-            foreach (var network in networks)
-            {
-                // عنوان شبکه
-                var title = new TextBlock
-                {
-                    Text = network.Name,
-                    FontWeight = FontWeights.Bold,
-                    FontSize = 12,
-                    Foreground = Brushes.DarkSlateBlue
-                };
-                Canvas.SetLeft(title, RailLeftX);
-                Canvas.SetTop(title, y);
-                LadderCanvas.Children.Add(title);
-                y += 20;
+}  // namespace
 
-                foreach (var rung in network.Rungs)
-                {
-                    DrawRung(rung, y);
-                    y += RungHeight + VerticalGap;
-                }
-                y += 10; // فاصله اضافی بین شبکه‌ها
-            }
+Parser::Parser(const vector<Token>& tokens) : tokens(tokens) {}
 
-            // تنظیم اندازه Canvas بر اساس محتوا
-            double totalHeight = y + 20;
-            double totalWidth = RailRightX + 100;
-            LadderCanvas.Width = totalWidth;
-            LadderCanvas.Height = totalHeight;
-        }
+const Token& Parser::current() const {
+    return tokens[pos];
+}
 
-        // ---------------------- Helper evaluation ----------------------
-        private bool IsContactConducting(LadderElement elem)
-        {
-            if (simulator == null) return false;
+const Token& Parser::peek(size_t offset) const {
+    size_t idx = pos + offset;
+    if (idx >= tokens.size()) idx = tokens.size() - 1;  // END_OF_FILE
+    return tokens[idx];
+}
 
-            if (elem.Type == "contact")
-            {
-                if (elem.ContactType == "comparison")
-                    return EvaluateComparison(elem);
-                else
-                {
-                    var bools = simulator.GetBoolVariables();
-                    bool state = bools.TryGetValue(elem.Address, out bool val) && val;
-                    return elem.ContactType == "NO" ? state : !state;
-                }
-            }
-            return false;
-        }
+bool Parser::check(TokenType type, const string& lexeme) const {
+    if (current().type != type) return false;
+    if (!lexeme.empty() && current().lexeme != lexeme) return false;
+    return true;
+}
 
-        private bool EvaluateComparison(LadderElement elem)
-        {
-            double l = GetNumericValue(elem.Left);
-            double r = GetNumericValue(elem.Right);
-            return elem.Op switch
-            {
-                "eq" => l == r,
-                "ne" => l != r,
-                "gt" => l > r,
-                "lt" => l < r,
-                "ge" => l >= r,
-                "le" => l <= r,
-                _ => false
-            };
-        }
+const Token& Parser::advance() {
+    const Token& tok = current();
+    if (tok.type != TokenType::END_OF_FILE) pos++;
+    return tok;
+}
 
-        private double GetNumericValue(string expr)
-        {
-            if (double.TryParse(expr, out double literal)) return literal;
-            var numVars = simulator.GetNumericVariables();
-            if (numVars.TryGetValue(expr, out double val)) return val;
-            var boolVars = simulator.GetBoolVariables();
-            if (boolVars.TryGetValue(expr, out bool b)) return b ? 1.0 : 0.0;
-            return 0.0;
-        }
+const Token& Parser::expect(TokenType type, const string& lexeme) {
+    if (!check(type, lexeme)) {
+        string expected = lexeme.empty() ? tokenTypeToString(type) : "'" + lexeme + "'";
+        parseError(current(), "expected " + expected + " but found '" + current().lexeme + "'");
+    }
+    return advance();
+}
 
-        private bool IsBranchTrue(List<LadderElement> branch)
-        {
-            foreach (var elem in branch)
-            {
-                if (!IsContactConducting(elem))
-                    return false;
-            }
-            return true;
-        }
-
-        private Brush ActiveBrush => Brushes.Green;
-        private Brush InactiveBrush => Brushes.Gray;
-
-        // ---------------------- Drawing methods ----------------------
-        private void DrawRung(LadderRung rung, double y)
-        {
-            // ریل‌ها
-            DrawRail(RailLeftX, y, RungHeight);
-            DrawRail(RailRightX, y, RungHeight);
-
-            double centerY = y + RungHeight / 2;
-            double startX = RailLeftX + 15;
-            double outputLeft;
-
-            // تعیین محل شروع المان خروجی
-            if (rung.Coil != null)
-                outputLeft = RailRightX - 70;
-            else if (rung.Timer != null)
-                outputLeft = RailRightX - 110;
-            else if (rung.Counter != null)
-                outputLeft = RailRightX - 130;
-            else
-                outputLeft = RailRightX - 40;
-
-            // وضعیت شاخه‌ها
-            var branchStates = rung.Branches.Select(b => IsBranchTrue(b)).ToList();
-            bool rungTrue = branchStates.Any(b => b);
-
-            // اتصال از ریل چپ به شروع شاخه‌ها
-            DrawHorizontalLine(RailLeftX, centerY, startX, centerY, rungTrue);
-
-            // رسم شاخه‌ها تا خروجی
-            DrawBranches(rung, startX, centerY, branchStates, rungTrue, outputLeft);
-
-            // رسم المان خروجی
-            if (rung.Coil != null)
-                DrawCoil(rung.Coil, outputLeft, centerY, rungTrue);
-            else if (rung.Timer != null)
-                DrawTimer(rung.Timer, outputLeft, centerY, rungTrue);
-            else if (rung.Counter != null)
-                DrawCounter(rung.Counter, outputLeft, centerY, rungTrue);
-
-            // اتصال از خروجی به ریل راست
-            double outputRight = outputLeft + GetOutputElementWidth(rung);
-            DrawHorizontalLine(outputRight, centerY, RailRightX, centerY, rungTrue);
-        }
-
-        private double GetOutputElementWidth(LadderRung rung)
-        {
-            if (rung.Coil != null) return 40;
-            if (rung.Timer != null) return 80;
-            if (rung.Counter != null) return 100;
-            return 30;
-        }
-
-        private void DrawRail(double x, double y, double height)
-        {
-            var rail = new Line
-            {
-                X1 = x, Y1 = y,
-                X2 = x, Y2 = y + height,
-                Stroke = Brushes.Black,
-                StrokeThickness = 4
-            };
-            LadderCanvas.Children.Add(rail);
-        }
-
-        private void DrawBranches(LadderRung rung, double startX, double centerY,
-            List<bool> branchStates, bool rungTrue, double outputLeft)
-        {
-            if (rung.Branches.Count == 0)
-            {
-                DrawHorizontalLine(startX, centerY, outputLeft, centerY, rungTrue);
-                return;
-            }
-
-            if (rung.Branches.Count == 1)
-            {
-                // سری ساده
-                var branch = rung.Branches[0];
-                bool branchTrue = branchStates[0];
-                double x = startX;
-
-                DrawHorizontalLine(x, centerY, x + 8, centerY, branchTrue);
-                x += 8;
-
-                for (int i = 0; i < branch.Count; i++)
-                {
-                    DrawElement(branch[i], x, centerY - ContactHeight / 2, branchTrue);
-                    x += ElementWidth;
-                    DrawHorizontalLine(x, centerY, x + 8, centerY, branchTrue);
-                    x += 8;
-                }
-
-                DrawHorizontalLine(x, centerY, outputLeft, centerY, branchTrue);
-            }
-            else
-            {
-                // شاخه‌های موازی (OR)
-                double branchSpacing = (RungHeight) / (rung.Branches.Count + 1);
-                List<double> branchYs = new();
-                for (int i = 0; i < rung.Branches.Count; i++)
-                    branchYs.Add(centerY - RungHeight / 2 + (i + 1) * branchSpacing);
-
-                double commonStartX = startX;
-                double commonEndX = startX + ElementWidth * rung.Branches.Max(b => b.Count) + 16;
-
-                // اتصال عمودی از خط اصلی به شاخه‌ها
-                for (int i = 0; i < rung.Branches.Count; i++)
-                {
-                    DrawVerticalLine(commonStartX, branchYs[i], centerY, branchStates[i]);
-                }
-
-                // رسم هر شاخه
-                for (int i = 0; i < rung.Branches.Count; i++)
-                {
-                    double by = branchYs[i];
-                    bool branchTrue = branchStates[i];
-                    double x = commonStartX;
-
-                    DrawHorizontalLine(x, by, x + 8, by, branchTrue);
-                    x += 8;
-
-                    for (int j = 0; j < rung.Branches[i].Count; j++)
-                    {
-                        DrawElement(rung.Branches[i][j], x, by - ContactHeight / 2, branchTrue);
-                        x += ElementWidth;
-                        DrawHorizontalLine(x, by, x + 8, by, branchTrue);
-                        x += 8;
-                    }
-
-                    // اتصال عمودی از انتهای شاخه به خط مشترک
-                    DrawVerticalLine(x, by, centerY, branchTrue);
-                }
-
-                // خط افقی مشترک تا خروجی
-                DrawHorizontalLine(commonEndX, centerY, outputLeft, centerY, rungTrue);
-            }
-        }
-
-        private void DrawElement(LadderElement elem, double x, double y, bool conducting)
-        {
-            if (elem.Type == "contact")
-                DrawContact(elem, x, y, conducting);
-            else if (elem.Type == "comparison")
-                DrawComparison(elem, x, y, conducting);
-        }
-
-        private void DrawContact(LadderElement elem, double x, double y, bool conducting)
-        {
-            Brush brush = conducting ? ActiveBrush : InactiveBrush;
-
-            var line1 = new Line { X1 = x, Y1 = y, X2 = x, Y2 = y + ContactHeight, Stroke = brush, StrokeThickness = 2 };
-            var line2 = new Line { X1 = x + ContactWidth, Y1 = y, X2 = x + ContactWidth, Y2 = y + ContactHeight, Stroke = brush, StrokeThickness = 2 };
-            LadderCanvas.Children.Add(line1);
-            LadderCanvas.Children.Add(line2);
-
-            if (elem.ContactType == "NC")
-            {
-                var slash = new Line { X1 = x, Y1 = y + ContactHeight, X2 = x + ContactWidth, Y2 = y, Stroke = brush, StrokeThickness = 1.5 };
-                LadderCanvas.Children.Add(slash);
-            }
-
-            var label = new TextBlock { Text = elem.Address, FontSize = 9, Foreground = Brushes.Blue };
-            Canvas.SetLeft(label, x - 3);
-            Canvas.SetTop(label, y + ContactHeight + 2);
-            LadderCanvas.Children.Add(label);
-
-            // منطقه کلیک
-            var clickArea = new Rectangle
-            {
-                Width = ContactWidth + 4,
-                Height = ContactHeight + 4,
-                Fill = Brushes.Transparent,
-                Tag = elem
-            };
-            clickArea.MouseLeftButtonDown += (s, e) =>
-            {
-                if (simulator != null)
-                {
-                    var varName = elem.Address;
-                    var bools = simulator.GetBoolVariables();
-                    if (bools.ContainsKey(varName))
-                    {
-                        bool newVal = !bools[varName];
-                        simulator.SetBool(varName, newVal);
-                        DrawNetworks(networks);
-                    }
-                }
-            };
-            Canvas.SetLeft(clickArea, x - 2);
-            Canvas.SetTop(clickArea, y - 2);
-            LadderCanvas.Children.Add(clickArea);
-        }
-
-        private void DrawComparison(LadderElement elem, double x, double y, bool conducting)
-        {
-            Brush brush = conducting ? ActiveBrush : InactiveBrush;
-            var box = new Rectangle { Width = 40, Height = 25, Fill = Brushes.White, Stroke = brush, StrokeThickness = 2 };
-            Canvas.SetLeft(box, x);
-            Canvas.SetTop(box, y + 2);
-            LadderCanvas.Children.Add(box);
-
-            var text = new TextBlock { Text = $"{elem.Left} {elem.Op} {elem.Right}", FontSize = 9, Foreground = Brushes.DarkGreen };
-            Canvas.SetLeft(text, x + 2);
-            Canvas.SetTop(text, y + 4);
-            LadderCanvas.Children.Add(text);
-        }
-
-        private void DrawCoil(LadderElement elem, double x, double centerY, bool rungTrue)
-        {
-            bool output = simulator != null && simulator.GetBoolVariables().TryGetValue(elem.Address, out bool val) && val;
-            Brush brush = output ? ActiveBrush : InactiveBrush;
-
-            string symbol = elem.ContactType == "reset" ? "(R)" : elem.ContactType == "set" ? "(S)" : "( )";
-            var coilText = new TextBlock
-            {
-                Text = $"{symbol} {elem.Address}",
-                FontWeight = FontWeights.Bold,
-                FontSize = 11,
-                Foreground = brush
-            };
-            Canvas.SetLeft(coilText, x);
-            Canvas.SetTop(coilText, centerY - 8);
-            LadderCanvas.Children.Add(coilText);
-        }
-
-        private void DrawTimer(LadderElement elem, double x, double centerY, bool rungTrue)
-        {
-            bool output = simulator != null && simulator.GetBoolVariables().TryGetValue(elem.Address, out bool val) && val;
-            Brush brush = output ? ActiveBrush : InactiveBrush;
-
-            var boxWidth = 80;
-            var boxHeight = 50;
-            var boxY = centerY - boxHeight / 2;
-            var box = new Rectangle { Width = boxWidth, Height = boxHeight, Fill = Brushes.LightYellow, Stroke = brush, StrokeThickness = 2 };
-            Canvas.SetLeft(box, x);
-            Canvas.SetTop(box, boxY);
-            LadderCanvas.Children.Add(box);
-
-            var title = new TextBlock { Text = elem.ContactType, FontWeight = FontWeights.Bold, FontSize = 10 };
-            Canvas.SetLeft(title, x + 12);
-            Canvas.SetTop(title, boxY + 18);
-            LadderCanvas.Children.Add(title);
-
-            DrawPin(x, boxY + boxHeight / 2, "IN", elem.Address, brush);
-            DrawPin(x + boxWidth, boxY + boxHeight / 2, "Q", elem.Address, brush);
-            DrawPin(x + boxWidth / 2, boxY, "PT", elem.Source, brush);
-            DrawPin(x + boxWidth / 2, boxY + boxHeight, "ET", "", brush);
-        }
-
-        private void DrawCounter(LadderElement elem, double x, double centerY, bool rungTrue)
-        {
-            bool output = simulator != null && simulator.GetBoolVariables().TryGetValue(elem.Address, out bool val) && val;
-            Brush brush = output ? ActiveBrush : InactiveBrush;
-
-            var boxWidth = 100;
-            var boxHeight = 70;
-            var boxY = centerY - boxHeight / 2;
-            var box = new Rectangle { Width = boxWidth, Height = boxHeight, Fill = Brushes.LightCyan, Stroke = brush, StrokeThickness = 2 };
-            Canvas.SetLeft(box, x);
-            Canvas.SetTop(box, boxY);
-            LadderCanvas.Children.Add(box);
-
-            var title = new TextBlock { Text = elem.ContactType, FontWeight = FontWeights.Bold, FontSize = 10 };
-            Canvas.SetLeft(title, x + 20);
-            Canvas.SetTop(title, boxY + 25);
-            LadderCanvas.Children.Add(title);
-
-            if (elem.ContactType == "count_up")
-            {
-                DrawPin(x, boxY + 15, "CU", elem.Input1, brush);
-                DrawPin(x, boxY + 50, "R", elem.Input2, brush);
-                DrawPin(x + boxWidth, boxY + 35, "Q", elem.Address, brush);
-                DrawPin(x + boxWidth / 2, boxY + boxHeight, "PV", elem.Preset, brush);
-            }
-            else if (elem.ContactType == "count_down")
-            {
-                DrawPin(x, boxY + 15, "CD", elem.Input1, brush);
-                DrawPin(x, boxY + 50, "LD", elem.Input2, brush);
-                DrawPin(x + boxWidth, boxY + 35, "Q", elem.Address, brush);
-                DrawPin(x + boxWidth / 2, boxY + boxHeight, "PV", elem.Preset, brush);
-            }
-            else if (elem.ContactType == "count_updown")
-            {
-                DrawPin(x, boxY + 8, "CU", elem.Input1, brush);
-                DrawPin(x, boxY + 28, "CD", elem.Input2, brush);
-                DrawPin(x, boxY + 48, "R", elem.Input3, brush);
-                DrawPin(x, boxY + 68, "LD", elem.Input4, brush);
-                DrawPin(x + boxWidth, boxY + 18, "QU", elem.Address, brush);
-                DrawPin(x + boxWidth, boxY + 58, "QD", elem.Address, brush);
-                DrawPin(x + boxWidth / 2, boxY + boxHeight, "PV", elem.Preset, brush);
-            }
-        }
-
-        private void DrawPin(double x, double y, string pinName, string value, Brush brush)
-        {
-            var pinText = new TextBlock { Text = $"{pinName}: {value}", FontSize = 8, Foreground = brush };
-            Canvas.SetLeft(pinText, x + 2);
-            Canvas.SetTop(pinText, y);
-            LadderCanvas.Children.Add(pinText);
-        }
-
-        // ---------- Primitives ----------
-        private void DrawHorizontalLine(double x1, double y1, double x2, double y2, bool active)
-        {
-            var line = new Line
-            {
-                X1 = x1,
-                Y1 = y1,
-                X2 = x2,
-                Y2 = y2,
-                Stroke = active ? ActiveBrush : InactiveBrush,
-                StrokeThickness = 2
-            };
-            LadderCanvas.Children.Add(line);
-        }
-
-        private void DrawVerticalLine(double x, double y1, double y2, bool active)
-        {
-            var line = new Line
-            {
-                X1 = x,
-                Y1 = y1,
-                X2 = x,
-                Y2 = y2,
-                Stroke = active ? ActiveBrush : InactiveBrush,
-                StrokeThickness = 2
-            };
-            LadderCanvas.Children.Add(line);
-        }
+void Parser::skipNewlines() {
+    while (check(TokenType::NEWLINE)) {
+        pos++;
     }
 }
+
+// ---------------- Program & Functions ----------------
+
+unique_ptr<Program> Parser::parseProgram() {
+    auto program = make_unique<Program>();
+    skipNewlines();
+    while (!check(TokenType::END_OF_FILE)) {
+        if (!check(TokenType::KEYWORD, "def")) {
+            parseError(current(), "expected 'def' at top level, found '" + current().lexeme + "'");
+        }
+        program->functions.push_back(parseFunctionDef());
+        skipNewlines();
+    }
+    return program;
+}
+
+unique_ptr<FunctionDef> Parser::parseFunctionDef() {
+    const Token& defTok = expect(TokenType::KEYWORD, "def");
+    string name = expect(TokenType::IDENTIFIER).lexeme;
+
+    expect(TokenType::PUNCTUATION, "(");
+    vector<string> params;
+    if (check(TokenType::IDENTIFIER)) {
+        params.push_back(advance().lexeme);
+        while (check(TokenType::PUNCTUATION, ",")) {
+            advance();
+            params.push_back(expect(TokenType::IDENTIFIER).lexeme);
+        }
+    }
+    expect(TokenType::PUNCTUATION, ")");
+    expect(TokenType::PUNCTUATION, ":");
+
+    auto body = parseBlock();
+    return make_unique<FunctionDef>(name, move(params), move(body), defTok.line, defTok.column);
+}
+
+// ---------------- Blocks & Statements ----------------
+
+vector<StmtPtr> Parser::parseBlock() {
+    expect(TokenType::NEWLINE);
+    if (!check(TokenType::INDENT)) {
+        parseError(current(), "expected an indented block");
+    }
+    advance();
+
+    vector<StmtPtr> stmts = parseStatements();
+
+    if (!check(TokenType::DEDENT)) {
+        parseError(current(), "expected dedent at end of block, found '" + current().lexeme + "'");
+    }
+    advance();
+    return stmts;
+}
+
+vector<StmtPtr> Parser::parseStatements() {
+    vector<StmtPtr> stmts;
+    while (true) {
+        skipNewlines();
+        if (check(TokenType::DEDENT) || check(TokenType::END_OF_FILE)) break;
+        stmts.push_back(parseStatement());
+    }
+    return stmts;
+}
+
+StmtPtr Parser::parseStatement() {
+    if (check(TokenType::KEYWORD, "if")) return parseIfStmt();
+    if (check(TokenType::KEYWORD, "while")) return parseWhileStmt();
+    if (check(TokenType::KEYWORD, "for")) return parseForStmt();
+    if (check(TokenType::KEYWORD, "break") || check(TokenType::KEYWORD, "continue")) {
+        const Token& kwTok = advance();
+        expect(TokenType::NEWLINE);
+        if (kwTok.lexeme == "break") {
+            return make_unique<BreakStmt>(kwTok.line, kwTok.column);
+        }
+        return make_unique<ContinueStmt>(kwTok.line, kwTok.column);
+    }
+    // فراخوانی تابع به‌عنوان دستور: name(args)
+    if (check(TokenType::IDENTIFIER) && peek(1).type == TokenType::PUNCTUATION &&
+        peek(1).lexeme == "(") {
+        return parseCallStmt();
+    }
+    if (check(TokenType::IDENTIFIER)) return parseAssignment();
+
+    if (check(TokenType::KEYWORD, "return")) {
+        parseError(current(), "'return' is not supported in QPLC");
+    }
+    parseError(current(), "expected a statement, found '" + current().lexeme + "'");
+}
+
+// name(arg1, arg2, ...) به‌عنوان یک دستور مستقل
+StmtPtr Parser::parseCallStmt() {
+    const Token& nameTok = expect(TokenType::IDENTIFIER);
+    string name = nameTok.lexeme;
+
+    expect(TokenType::PUNCTUATION, "(");
+    vector<ExprPtr> args;
+    if (!check(TokenType::PUNCTUATION, ")")) {
+        args.push_back(parseExpression());
+        while (check(TokenType::PUNCTUATION, ",")) {
+            advance();
+            args.push_back(parseExpression());
+        }
+    }
+    expect(TokenType::PUNCTUATION, ")");
+    expect(TokenType::NEWLINE);
+    return make_unique<CallStmt>(name, move(args), nameTok.line, nameTok.column);
+}
+
+unique_ptr<IfStmt> Parser::parseIfStmt() {
+    const Token& ifTok = expect(TokenType::KEYWORD, "if");
+    auto cond = parseExpression();
+    expect(TokenType::PUNCTUATION, ":");
+    auto thenBlock = parseBlock();
+
+    vector<pair<ExprPtr, vector<StmtPtr>>> elifBranches;
+    while (check(TokenType::KEYWORD, "elif")) {
+        skipNewlines();  // محافظت در برابر خطوط خالی بین شاخه‌ها (لکسر آن‌ها را حذف می‌کند)
+        advance();
+        auto elifCond = parseExpression();
+        expect(TokenType::PUNCTUATION, ":");
+        auto elifBody = parseBlock();
+        elifBranches.emplace_back(move(elifCond), move(elifBody));
+    }
+
+    vector<StmtPtr> elseBlock;
+    if (check(TokenType::KEYWORD, "else")) {
+        skipNewlines();
+        advance();
+        expect(TokenType::PUNCTUATION, ":");
+        elseBlock = parseBlock();
+    }
+
+    return make_unique<IfStmt>(move(cond), move(thenBlock), move(elifBranches),
+                               move(elseBlock), ifTok.line, ifTok.column);
+}
+
+unique_ptr<WhileStmt> Parser::parseWhileStmt() {
+    const Token& whileTok = expect(TokenType::KEYWORD, "while");
+    auto cond = parseExpression();
+    expect(TokenType::PUNCTUATION, ":");
+    auto body = parseBlock();
+    return make_unique<WhileStmt>(move(cond), move(body), whileTok.line, whileTok.column);
+}
+
+unique_ptr<ForStmt> Parser::parseForStmt() {
+    const Token& forTok = expect(TokenType::KEYWORD, "for");
+    string varName = expect(TokenType::IDENTIFIER).lexeme;
+    expect(TokenType::KEYWORD, "in");
+    expect(TokenType::KEYWORD, "range");
+    expect(TokenType::PUNCTUATION, "(");
+
+    auto readInt = [&]() -> int {
+        bool negative = false;
+        if (check(TokenType::OPERATOR, "-")) {
+            negative = true;
+            advance();
+        }
+        const Token& numTok = expect(TokenType::INTEGER);
+        int value = stoi(numTok.lexeme);
+        return negative ? -value : value;
+    };
+
+    int first = readInt();
+    int start = 0;
+    int end = first;
+    if (check(TokenType::PUNCTUATION, ",")) {
+        advance();
+        end = readInt();
+        start = first;
+    }
+    // آرگومان سوم range (گام) پشتیبانی نمی‌شود
+    if (check(TokenType::PUNCTUATION, ",")) {
+        parseError(current(), "range() with a step argument is not supported");
+    }
+
+    expect(TokenType::PUNCTUATION, ")");
+    expect(TokenType::PUNCTUATION, ":");
+    auto body = parseBlock();
+    return make_unique<ForStmt>(varName, start, end, move(body), forTok.line, forTok.column);
+}
+
+StmtPtr Parser::parseAssignment() {
+    const Token& nameTok = expect(TokenType::IDENTIFIER);
+    string name = nameTok.lexeme;
+
+    // انتساب اندیس‌دار: name[index] = expr
+    if (check(TokenType::PUNCTUATION, "[")) {
+        advance();
+        auto index = parseExpression();
+        expect(TokenType::PUNCTUATION, "]");
+        expect(TokenType::OPERATOR, "=");
+        auto expr = parseExpression();
+        return make_unique<IndexAssignmentStmt>(name, move(index), move(expr),
+                                                nameTok.line, nameTok.column);
+    }
+
+    expect(TokenType::OPERATOR, "=");
+    auto expr = parseExpression();
+    // دستور ساده همیشه با NEWLINE بسته می‌شود (لکسر بعد از هر خط محتوا NEWLINE صادر می‌کند)
+    expect(TokenType::NEWLINE);
+    return make_unique<AssignmentStmt>(name, move(expr), nameTok.line, nameTok.column);
+}
+
+// ---------------- Expressions (precedence climbing) ----------------
+
+ExprPtr Parser::parseExpression() {
+    return parseOr();
+}
+
+ExprPtr Parser::parseOr() {
+    auto left = parseAnd();
+    while (check(TokenType::KEYWORD, "or") || check(TokenType::KEYWORD, "xor")) {
+        const Token& opTok = advance();
+        auto right = parseAnd();
+        left = make_unique<BinaryExpr>(opTok.lexeme, move(left), move(right), opTok.line, opTok.column);
+    }
+    return left;
+}
+
+ExprPtr Parser::parseAnd() {
+    auto left = parseNot();
+    while (check(TokenType::KEYWORD, "and")) {
+        const Token& opTok = advance();
+        auto right = parseNot();
+        left = make_unique<BinaryExpr>("and", move(left), move(right), opTok.line, opTok.column);
+    }
+    return left;
+}
+
+ExprPtr Parser::parseNot() {
+    if (check(TokenType::KEYWORD, "not")) {
+        const Token& opTok = advance();
+        auto operand = parseNot();  // not دارای بالاترین تقدم در مقایسه با or/and است
+        return make_unique<UnaryExpr>("not", move(operand), opTok.line, opTok.column);
+    }
+    return parseComparison();
+}
+
+ExprPtr Parser::parseComparison() {
+    auto left = parseAdditive();
+    if (isComparisonOp(current())) {
+        const Token& opTok = advance();
+        auto right = parseAdditive();
+        return make_unique<BinaryExpr>(opTok.lexeme, move(left), move(right),
+                                       opTok.line, opTok.column);
+    }
+    return left;
+}
+
+ExprPtr Parser::parseAdditive() {
+    auto left = parseMultiplicative();
+    while (check(TokenType::OPERATOR, "+") || check(TokenType::OPERATOR, "-")) {
+        const Token& opTok = advance();
+        auto right = parseMultiplicative();
+        left = make_unique<BinaryExpr>(opTok.lexeme, move(left), move(right),
+                                       opTok.line, opTok.column);
+    }
+    return left;
+}
+
+ExprPtr Parser::parseMultiplicative() {
+    auto left = parseUnary();
+    while (check(TokenType::OPERATOR, "*") || check(TokenType::OPERATOR, "/") ||
+           check(TokenType::OPERATOR, "%")) {
+        const Token& opTok = advance();
+        auto right = parseUnary();
+        left = make_unique<BinaryExpr>(opTok.lexeme, move(left), move(right),
+                                       opTok.line, opTok.column);
+    }
+    return left;
+}
+
+ExprPtr Parser::parseUnary() {
+    if (check(TokenType::OPERATOR, "-") || check(TokenType::OPERATOR, "+")) {
+        bool minus = check(TokenType::OPERATOR, "-");
+        const Token& opTok = advance();
+        auto operand = parseUnary();
+        if (!minus) return operand;  // unary plus بی‌اثر است
+        return make_unique<UnaryExpr>(opTok.lexeme, move(operand), opTok.line, opTok.column);
+    }
+    return parsePrimary();
+}
+
+ExprPtr Parser::parsePrimary() {
+    const Token& tok = current();
+
+    if (check(TokenType::INTEGER)) {
+        advance();
+        return make_unique<NumberExpr>(tok.lexeme, false, tok.line, tok.column);
+    }
+    if (check(TokenType::FLOAT)) {
+        advance();
+        return make_unique<NumberExpr>(tok.lexeme, true, tok.line, tok.column);
+    }
+    if (check(TokenType::TIME_LITERAL)) {
+        advance();
+        return make_unique<TimeExpr>(tok.lexeme, tok.line, tok.column);
+    }
+    if (check(TokenType::KEYWORD, "True") || check(TokenType::KEYWORD, "False")) {
+        bool value = tok.lexeme == "True";
+        advance();
+        return make_unique<BoolExpr>(value, tok.line, tok.column);
+    }
+    if (check(TokenType::PUNCTUATION, "(")) {
+        advance();
+        auto expr = parseExpression();
+        expect(TokenType::PUNCTUATION, ")");
+        return expr;
+    }
+    if (check(TokenType::IDENTIFIER)) {
+        advance();
+        ExprPtr expr = make_unique<VarExpr>(tok.lexeme, tok.line, tok.column);
+
+        // پسوند یک شناسه: فراخوانی f(...)، اندیس a[i] یا دسترسی به عضو obj.attr
+        while (true) {
+            if (check(TokenType::PUNCTUATION, "(")) {
+                auto var = dynamic_cast<VarExpr*>(expr.get());
+                if (!var) parseError(current(), "only named functions can be called");
+                advance();
+                vector<ExprPtr> args;
+                if (!check(TokenType::PUNCTUATION, ")")) {
+                    args.push_back(parseExpression());
+                    while (check(TokenType::PUNCTUATION, ",")) {
+                        advance();
+                        args.push_back(parseExpression());
+                    }
+                }
+                expect(TokenType::PUNCTUATION, ")");
+                expr = make_unique<CallExpr>(var->name, move(args), tok.line, tok.column);
+            }
+            else if (check(TokenType::PUNCTUATION, "[")) {
+                if (!dynamic_cast<VarExpr*>(expr.get()))
+                    parseError(current(), "indexing is only supported on variables");
+                advance();
+                auto index = parseExpression();
+                expect(TokenType::PUNCTUATION, "]");
+                string arrayName = dynamic_cast<VarExpr*>(expr.get())->name;
+                expr = make_unique<IndexExpr>(arrayName, move(index), tok.line, tok.column);
+            }
+            else if (check(TokenType::PUNCTUATION, ".")) {
+                if (!dynamic_cast<VarExpr*>(expr.get()))
+                    parseError(current(), "attribute access is only supported on variables");
+                advance();
+                const Token& attrTok = expect(TokenType::IDENTIFIER);
+                string objectName = dynamic_cast<VarExpr*>(expr.get())->name;
+                expr = make_unique<AttributeExpr>(objectName, attrTok.lexeme,
+                                                  tok.line, tok.column);
+            }
+            else {
+                break;
+            }
+        }
+
+        return expr;
+    }
+    if (check(TokenType::KEYWORD, "range")) {
+        parseError(tok, "'range' is only valid inside a for statement");
+    }
+    parseError(tok, "unexpected token '" + tok.lexeme + "'");
+}
+

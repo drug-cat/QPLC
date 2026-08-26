@@ -1,5 +1,7 @@
 #include "codegen/ladder_generator.h"
 
+#include "common/builtins.h"
+
 #include <sstream>
 #include <vector>
 #include <string>
@@ -10,20 +12,17 @@
 #include <cctype>
 #include <cstdlib>
 #include <unordered_set>
+#include <unordered_map>
 
 using namespace std;
 
 namespace {
 
-// Forward declaration
+// ------------------- Expression to String -------------------
 string resolveArrayAddress(const string& base, const string& type, const string& indexStr);
 
-// Timer function names
-const unordered_set<string> timerFunctions = {"on_delay", "off_delay", "pulse"};
-// Counter function names
-const unordered_set<string> counterFunctions = {"count_up", "count_down", "count_updown"};
+using SubstMap = unordered_map<string, const Expr*>;
 
-// ------------------- Expression to String -------------------
 string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
     if (auto num = dynamic_cast<const NumberExpr*>(&expr)) {
         return num->value;
@@ -32,6 +31,11 @@ string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
     } else if (auto t = dynamic_cast<const TimeExpr*>(&expr)) {
         return t->value;
     } else if (auto v = dynamic_cast<const VarExpr*>(&expr)) {
+        // جایگزینی ثابت تعریف‌شده در [constants] با مقدار خام آن
+        if (configPtr) {
+            auto cit = configPtr->constants.find(v->name);
+            if (cit != configPtr->constants.end()) return cit->second;
+        }
         return v->name;
     } else if (auto idx = dynamic_cast<const IndexExpr*>(&expr)) {
         if (configPtr) {
@@ -63,10 +67,10 @@ string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
 
 // ------------------- Contact Representation -------------------
 struct Contact {
-    enum class Kind { VAR, COMP };
+    enum class Kind { VAR, COMP, EDGE };
     Kind kind;
-    string name;
-    string op;        // for COMP: "eq", "ne", "gt", "lt", "ge", "le"
+    string name;      // VAR: آدرس متغیر، EDGE: عملوند لبه
+    string op;        // COMP: عملگر مقایسه؛ EDGE: "rising" یا "falling"
     string left;
     string right;
     bool negated;
@@ -90,6 +94,11 @@ struct Contact {
         }
         return Contact(Kind::COMP, "", newOp, left, right, false);
     }
+
+    static Contact makeEdge(const string& edgeType, const string& operand) {
+        // edgeType: "rising" یا "falling"
+        return Contact(Kind::EDGE, operand, edgeType, "", "", false);
+    }
 };
 
 struct Term {
@@ -104,6 +113,10 @@ string normalizeOp(const string& op) {
     if (op == "<=") return "le";
     if (op == ">=") return "ge";
     return op;
+}
+
+string flipEdge(const string& edgeType) {
+    return edgeType == "rising" ? "falling" : "rising";
 }
 
 string resolveArrayAddress(const string& base, const string& type, const string& indexStr) {
@@ -128,6 +141,63 @@ string resolveArrayAddress(const string& base, const string& type, const string&
         addr += index * stride;
         return prefix + to_string(addr);
     }
+}
+
+vector<Term> exprToDNF(const Expr& expr, const Config& config);
+
+vector<Term> negateDNF(const vector<Term>& dnf) {
+    vector<vector<Contact>> cnf;
+    for (const auto& term : dnf) {
+        vector<Contact> clause;
+        for (const auto& contact : term.contacts) {
+            if (contact.kind == Contact::Kind::VAR) {
+                clause.push_back(Contact::makeVar(contact.name, !contact.negated));
+            } else if (contact.kind == Contact::Kind::COMP) {
+                string op = contact.op;
+                string flippedOp;
+                if (op == "eq") flippedOp = "ne";
+                else if (op == "ne") flippedOp = "eq";
+                else if (op == "gt") flippedOp = "le";
+                else if (op == "lt") flippedOp = "ge";
+                else if (op == "ge") flippedOp = "lt";
+                else if (op == "le") flippedOp = "gt";
+                clause.push_back(Contact::makeComp(flippedOp, contact.left, contact.right, false));
+            } else {  // EDGE: نقیض لبه صعودی، لبه نزولی است و برعکس
+                clause.push_back(Contact::makeEdge(flipEdge(contact.op), contact.name));
+            }
+        }
+        cnf.push_back(move(clause));
+    }
+
+    vector<Term> result;
+    if (cnf.empty()) {
+        Term alwaysTrue;
+        result.push_back(move(alwaysTrue));
+        return result;
+    }
+
+    const auto& firstClause = cnf[0];
+    vector<Term> current;
+    for (const auto& contact : firstClause) {
+        Term term;
+        term.contacts.push_back(contact);
+        current.push_back(move(term));
+    }
+
+    for (size_t i = 1; i < cnf.size(); ++i) {
+        const auto& clause = cnf[i];
+        vector<Term> newCurrent;
+        for (const auto& term : current) {
+            for (const auto& contact : clause) {
+                Term newTerm = term;
+                newTerm.contacts.push_back(contact);
+                newCurrent.push_back(move(newTerm));
+            }
+        }
+        current = move(newCurrent);
+    }
+    result = move(current);
+    return result;
 }
 
 vector<Term> exprToDNF(const Expr& expr, const Config& config) {
@@ -176,6 +246,27 @@ vector<Term> exprToDNF(const Expr& expr, const Config& config) {
             result = move(left);
             result.insert(result.end(), right.begin(), right.end());
         }
+        else if (bin->op == "xor") {
+            // XOR: (a ∧ ¬b) ∨ (¬a ∧ b)
+            auto left = exprToDNF(*bin->left, config);
+            auto right = exprToDNF(*bin->right, config);
+            auto notLeft = negateDNF(left);
+            auto notRight = negateDNF(right);
+            for (auto& l : left) {
+                for (auto& nr : notRight) {
+                    Term term = l;
+                    term.contacts.insert(term.contacts.end(), nr.contacts.begin(), nr.contacts.end());
+                    result.push_back(move(term));
+                }
+            }
+            for (auto& nl : notLeft) {
+                for (auto& r : right) {
+                    Term term = nl;
+                    term.contacts.insert(term.contacts.end(), r.contacts.begin(), r.contacts.end());
+                    result.push_back(move(term));
+                }
+            }
+        }
     }
     else if (auto un = dynamic_cast<const UnaryExpr*>(&expr)) {
         if (un->op == "not") {
@@ -206,17 +297,40 @@ vector<Term> exprToDNF(const Expr& expr, const Config& config) {
                         string rightStr = exprToString(*innerBin->right, &config);
                         term.contacts.push_back(Contact::makeComp(op, leftStr, rightStr, true));
                         result.push_back(move(term));
+                    } else {
+                        auto innerCall = dynamic_cast<const CallExpr*>(un->operand.get());
+                        if (innerCall) {
+                            const string canonical = builtins::normalize(innerCall->funcName);
+                            if (builtins::isEdge(canonical)) {
+                                // ¬rising_edge(x) ≡ falling_edge(x)
+                                string flipped = (canonical == "rising_edge") ? "falling" : "rising";
+                                string addr = exprToString(*innerCall->args[0], &config);
+                                Term term;
+                                term.contacts.push_back(Contact::makeEdge(flipped, addr));
+                                result.push_back(move(term));
+                            }
+                        }
                     }
                 }
             }
         }
     }
     else if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
-        // Timer/counter functions as boolean expressions: treat as a single contact with function call string
-        Term term;
-        string callStr = exprToString(expr, &config);
-        term.contacts.push_back(Contact::makeVar(callStr, false));
-        result.push_back(move(term));
+        const string canonical = builtins::normalize(call->funcName);
+        if (builtins::isEdge(canonical) && call->args.size() == 1) {
+            // کنتاکت لبه به‌صورت بومی در XML
+            string edgeType = (canonical == "rising_edge") ? "rising" : "falling";
+            string addr = exprToString(*call->args[0], &config);
+            Term term;
+            term.contacts.push_back(Contact::makeEdge(edgeType, addr));
+            result.push_back(move(term));
+        } else {
+            // سایر فراخوانی‌ها (تایمر/شمارنده خارج از انتساب مستقیم): کنتاکت متنی
+            Term term;
+            string callStr = exprToString(expr, &config);
+            term.contacts.push_back(Contact::makeVar(callStr, false));
+            result.push_back(move(term));
+        }
     }
     else if (auto attr = dynamic_cast<const AttributeExpr*>(&expr)) {
         Term term;
@@ -231,59 +345,6 @@ vector<Term> exprToDNF(const Expr& expr, const Config& config) {
         }
     }
 
-    return result;
-}
-
-vector<Term> negateDNF(const vector<Term>& dnf) {
-    vector<vector<Contact>> cnf;
-    for (const auto& term : dnf) {
-        vector<Contact> clause;
-        for (const auto& contact : term.contacts) {
-            if (contact.kind == Contact::Kind::VAR) {
-                clause.push_back(Contact::makeVar(contact.name, !contact.negated));
-            } else {
-                string op = contact.op;
-                string flippedOp;
-                if (op == "eq") flippedOp = "ne";
-                else if (op == "ne") flippedOp = "eq";
-                else if (op == "gt") flippedOp = "le";
-                else if (op == "lt") flippedOp = "ge";
-                else if (op == "ge") flippedOp = "lt";
-                else if (op == "le") flippedOp = "gt";
-                clause.push_back(Contact::makeComp(flippedOp, contact.left, contact.right, false));
-            }
-        }
-        cnf.push_back(move(clause));
-    }
-
-    vector<Term> result;
-    if (cnf.empty()) {
-        Term alwaysTrue;
-        result.push_back(move(alwaysTrue));
-        return result;
-    }
-
-    const auto& firstClause = cnf[0];
-    vector<Term> current;
-    for (const auto& contact : firstClause) {
-        Term term;
-        term.contacts.push_back(contact);
-        current.push_back(move(term));
-    }
-
-    for (size_t i = 1; i < cnf.size(); ++i) {
-        const auto& clause = cnf[i];
-        vector<Term> newCurrent;
-        for (const auto& term : current) {
-            for (const auto& contact : clause) {
-                Term newTerm = term;
-                newTerm.contacts.push_back(contact);
-                newCurrent.push_back(move(newTerm));
-            }
-        }
-        current = move(newCurrent);
-    }
-    result = move(current);
     return result;
 }
 
@@ -302,6 +363,29 @@ string escapeXml(const string& input) {
     return out;
 }
 
+// نوشتن یک زنجیره کنتاکت (نقطه مشترک همه انواع رانگ‌ها)
+void writeContacts(ostream& ss, const vector<Contact>& contacts) {
+    for (const auto& contact : contacts) {
+        switch (contact.kind) {
+            case Contact::Kind::VAR: {
+                string type = contact.negated ? "NC" : "NO";
+                ss << "        <contact address=\"" << escapeXml(contact.name) << "\" type=\"" << type << "\"/>\n";
+                break;
+            }
+            case Contact::Kind::COMP: {
+                ss << "        <contact type=\"comparison\" op=\"" << escapeXml(contact.op)
+                   << "\" left=\"" << escapeXml(contact.left) << "\" right=\"" << escapeXml(contact.right) << "\"/>\n";
+                break;
+            }
+            case Contact::Kind::EDGE: {
+                ss << "        <contact address=\"" << escapeXml(contact.name)
+                   << "\" type=\"" << escapeXml(contact.op) << "\"/>\n";
+                break;
+            }
+        }
+    }
+}
+
 string generateRung(const vector<Term>& terms, const string& coilVar, const string& coilType = "set") {
     stringstream ss;
     ss << "    <rung>\n";
@@ -310,15 +394,7 @@ string generateRung(const vector<Term>& terms, const string& coilVar, const stri
     } else {
         for (const auto& term : terms) {
             ss << "      <branch>\n";
-            for (const auto& contact : term.contacts) {
-                if (contact.kind == Contact::Kind::VAR) {
-                    string type = contact.negated ? "NC" : "NO";
-                    ss << "        <contact address=\"" << escapeXml(contact.name) << "\" type=\"" << type << "\"/>\n";
-                } else {
-                    ss << "        <contact type=\"comparison\" op=\"" << escapeXml(contact.op)
-                       << "\" left=\"" << escapeXml(contact.left) << "\" right=\"" << escapeXml(contact.right) << "\"/>\n";
-                }
-            }
+            writeContacts(ss, term.contacts);
             ss << "      </branch>\n";
         }
         if (coilType == "reset") {
@@ -339,15 +415,7 @@ string generateMoveRung(const vector<Term>& terms, const string& dest, const str
     } else {
         for (const auto& term : terms) {
             ss << "      <branch>\n";
-            for (const auto& contact : term.contacts) {
-                if (contact.kind == Contact::Kind::VAR) {
-                    string type = contact.negated ? "NC" : "NO";
-                    ss << "        <contact address=\"" << escapeXml(contact.name) << "\" type=\"" << type << "\"/>\n";
-                } else {
-                    ss << "        <contact type=\"comparison\" op=\"" << escapeXml(contact.op)
-                       << "\" left=\"" << escapeXml(contact.left) << "\" right=\"" << escapeXml(contact.right) << "\"/>\n";
-                }
-            }
+            writeContacts(ss, term.contacts);
             ss << "      </branch>\n";
         }
         ss << "      <move dest=\"" << escapeXml(dest) << "\" source=\"" << escapeXml(source) << "\"/>\n";
@@ -364,9 +432,16 @@ string generateLabelRung(const string& label) {
     return ss.str();
 }
 
-string generateJumpRung(const string& label, const string& type = "jmp") {
+string generateJumpRung(const string& label, const string& type = "jmp", const vector<Term>* condTerms = nullptr) {
     stringstream ss;
     ss << "    <rung>\n";
+    if (condTerms) {
+        for (const auto& term : *condTerms) {
+            ss << "      <branch>\n";
+            writeContacts(ss, term.contacts);
+            ss << "      </branch>\n";
+        }
+    }
     if (type == "jmpn") {
         ss << "      <jump type=\"jmpn\" label=\"" << escapeXml(label) << "\"/>\n";
     } else {
@@ -381,15 +456,7 @@ string generateTimerRung(const vector<Term>& terms, const string& timerType, con
     ss << "    <rung>\n";
     for (const auto& term : terms) {
         ss << "      <branch>\n";
-        for (const auto& contact : term.contacts) {
-            if (contact.kind == Contact::Kind::VAR) {
-                string type = contact.negated ? "NC" : "NO";
-                ss << "        <contact address=\"" << escapeXml(contact.name) << "\" type=\"" << type << "\"/>\n";
-            } else {
-                ss << "        <contact type=\"comparison\" op=\"" << escapeXml(contact.op)
-                   << "\" left=\"" << escapeXml(contact.left) << "\" right=\"" << escapeXml(contact.right) << "\"/>\n";
-            }
-        }
+        writeContacts(ss, term.contacts);
         ss << "      </branch>\n";
     }
     ss << "      <timer type=\"" << escapeXml(timerType) << "\" duration=\"" << escapeXml(duration) << "\" output=\"" << escapeXml(outputVar) << "\"/>\n";
@@ -413,8 +480,8 @@ string generateCounterRung(const string& counterType, const vector<string>& args
     return ss.str();
 }
 
-// کلون کردن عبارت با جایگزینی متغیر حلقه
-ExprPtr cloneExprWithSubst(const Expr& expr, const string& varName, int value) {
+// کلون کردن عبارت با جایگزینی نام‌ها بر اساس نقشه جانشینی (پارامتر تابع یا متغیر حلقه)
+ExprPtr cloneExprWithSubst(const Expr& expr, const SubstMap& subs) {
     if (auto num = dynamic_cast<const NumberExpr*>(&expr)) {
         return make_unique<NumberExpr>(num->value, num->isFloat, num->line, num->column);
     }
@@ -425,20 +492,20 @@ ExprPtr cloneExprWithSubst(const Expr& expr, const string& varName, int value) {
         return make_unique<TimeExpr>(t->value, t->line, t->column);
     }
     if (auto var = dynamic_cast<const VarExpr*>(&expr)) {
-        if (var->name == varName) {
-            return make_unique<NumberExpr>(to_string(value), false, var->line, var->column);
-        } else {
-            return make_unique<VarExpr>(var->name, var->line, var->column);
+        auto it = subs.find(var->name);
+        if (it != subs.end() && it->second) {
+            return cloneExprWithSubst(*it->second, subs);
         }
+        return make_unique<VarExpr>(var->name, var->line, var->column);
     }
     if (auto idx = dynamic_cast<const IndexExpr*>(&expr)) {
-        ExprPtr clonedIndex = cloneExprWithSubst(*idx->index, varName, value);
+        ExprPtr clonedIndex = cloneExprWithSubst(*idx->index, subs);
         return make_unique<IndexExpr>(idx->name, std::move(clonedIndex), idx->line, idx->column);
     }
     if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
         vector<ExprPtr> clonedArgs;
         for (const auto& arg : call->args) {
-            clonedArgs.push_back(cloneExprWithSubst(*arg, varName, value));
+            clonedArgs.push_back(cloneExprWithSubst(*arg, subs));
         }
         return make_unique<CallExpr>(call->funcName, std::move(clonedArgs), call->line, call->column);
     }
@@ -446,60 +513,73 @@ ExprPtr cloneExprWithSubst(const Expr& expr, const string& varName, int value) {
         return make_unique<AttributeExpr>(attr->objectName, attr->attrName, attr->line, attr->column);
     }
     if (auto un = dynamic_cast<const UnaryExpr*>(&expr)) {
-        ExprPtr clonedOperand = cloneExprWithSubst(*un->operand, varName, value);
+        ExprPtr clonedOperand = cloneExprWithSubst(*un->operand, subs);
         return make_unique<UnaryExpr>(un->op, std::move(clonedOperand), un->line, un->column);
     }
     if (auto bin = dynamic_cast<const BinaryExpr*>(&expr)) {
-        ExprPtr left = cloneExprWithSubst(*bin->left, varName, value);
-        ExprPtr right = cloneExprWithSubst(*bin->right, varName, value);
+        ExprPtr left = cloneExprWithSubst(*bin->left, subs);
+        ExprPtr right = cloneExprWithSubst(*bin->right, subs);
         return make_unique<BinaryExpr>(bin->op, std::move(left), std::move(right), bin->line, bin->column);
     }
     return nullptr;
 }
 
-StmtPtr cloneStmtWithSubst(const Stmt& stmt, const string& varName, int value) {
+StmtPtr cloneStmtWithSubst(const Stmt& stmt, const SubstMap& subs) {
     if (auto assign = dynamic_cast<const AssignmentStmt*>(&stmt)) {
-        ExprPtr expr = cloneExprWithSubst(*assign->expr, varName, value);
+        ExprPtr expr = cloneExprWithSubst(*assign->expr, subs);
         return make_unique<AssignmentStmt>(assign->name, std::move(expr), assign->line, assign->column);
     }
     if (auto idxAssign = dynamic_cast<const IndexAssignmentStmt*>(&stmt)) {
-        ExprPtr index = cloneExprWithSubst(*idxAssign->index, varName, value);
-        ExprPtr expr = cloneExprWithSubst(*idxAssign->expr, varName, value);
+        ExprPtr index = cloneExprWithSubst(*idxAssign->index, subs);
+        ExprPtr expr = cloneExprWithSubst(*idxAssign->expr, subs);
         return make_unique<IndexAssignmentStmt>(idxAssign->name, std::move(index), std::move(expr), idxAssign->line, idxAssign->column);
     }
+    if (auto callStmt = dynamic_cast<const CallStmt*>(&stmt)) {
+        vector<ExprPtr> clonedArgs;
+        for (const auto& arg : callStmt->args) {
+            clonedArgs.push_back(cloneExprWithSubst(*arg, subs));
+        }
+        return make_unique<CallStmt>(callStmt->funcName, std::move(clonedArgs), callStmt->line, callStmt->column);
+    }
+    if (auto breakStmt = dynamic_cast<const BreakStmt*>(&stmt)) {
+        return make_unique<BreakStmt>(breakStmt->line, breakStmt->column);
+    }
+    if (auto continueStmt = dynamic_cast<const ContinueStmt*>(&stmt)) {
+        return make_unique<ContinueStmt>(continueStmt->line, continueStmt->column);
+    }
     if (auto ifStmt = dynamic_cast<const IfStmt*>(&stmt)) {
-        ExprPtr cond = cloneExprWithSubst(*ifStmt->cond, varName, value);
+        ExprPtr cond = cloneExprWithSubst(*ifStmt->cond, subs);
         vector<StmtPtr> thenBlock;
         for (const auto& s : ifStmt->thenBlock) {
-            thenBlock.push_back(cloneStmtWithSubst(*s, varName, value));
+            thenBlock.push_back(cloneStmtWithSubst(*s, subs));
         }
         vector<pair<ExprPtr, vector<StmtPtr>>> elifBranches;
         for (const auto& branch : ifStmt->elifBranches) {
-            ExprPtr elifCond = cloneExprWithSubst(*branch.first, varName, value);
+            ExprPtr elifCond = cloneExprWithSubst(*branch.first, subs);
             vector<StmtPtr> elifBlock;
             for (const auto& s : branch.second) {
-                elifBlock.push_back(cloneStmtWithSubst(*s, varName, value));
+                elifBlock.push_back(cloneStmtWithSubst(*s, subs));
             }
             elifBranches.emplace_back(std::move(elifCond), std::move(elifBlock));
         }
         vector<StmtPtr> elseBlock;
         for (const auto& s : ifStmt->elseBlock) {
-            elseBlock.push_back(cloneStmtWithSubst(*s, varName, value));
+            elseBlock.push_back(cloneStmtWithSubst(*s, subs));
         }
         return make_unique<IfStmt>(std::move(cond), std::move(thenBlock), std::move(elifBranches), std::move(elseBlock), ifStmt->line, ifStmt->column);
     }
     if (auto forStmt = dynamic_cast<const ForStmt*>(&stmt)) {
         vector<StmtPtr> body;
         for (const auto& s : forStmt->body) {
-            body.push_back(cloneStmtWithSubst(*s, varName, value));
+            body.push_back(cloneStmtWithSubst(*s, subs));
         }
         return make_unique<ForStmt>(forStmt->varName, forStmt->start, forStmt->end, std::move(body), forStmt->line, forStmt->column);
     }
     if (auto whileStmt = dynamic_cast<const WhileStmt*>(&stmt)) {
-        ExprPtr cond = cloneExprWithSubst(*whileStmt->cond, varName, value);
+        ExprPtr cond = cloneExprWithSubst(*whileStmt->cond, subs);
         vector<StmtPtr> body;
         for (const auto& s : whileStmt->body) {
-            body.push_back(cloneStmtWithSubst(*s, varName, value));
+            body.push_back(cloneStmtWithSubst(*s, subs));
         }
         return make_unique<WhileStmt>(std::move(cond), std::move(body), whileStmt->line, whileStmt->column);
     }
@@ -515,8 +595,52 @@ string generateLadderXml(const Program& program, const Config& config) {
 
     int networkCounter = 0;
     int whileCounter = 0;
+    int callDepth = 0;
+    const int kMaxInlineDepth = 8;
+
+    // استک برچسب‌های حلقه برای break/continue
+    vector<string> breakLabels;
+    vector<string> continueLabels;
+
+    // جدول توابع کاربر (هر ترتیب تعریفی پذیرفته است)
+    unordered_map<string, const FunctionDef*> funcMap;
+    for (const auto& func : program.functions) {
+        if (!funcMap.count(func->name)) {
+            funcMap[func->name] = func.get();
+        }
+    }
 
     std::function<void(const Stmt&)> processStmt;
+
+    // درج بدنه تابع کاربر در محل فراخوانی با جایگزینی پارامترها
+    std::function<void(const CallStmt&, const SubstMap&)> expandCall =
+        [&](const CallStmt& call, const SubstMap& outerSubs) {
+            auto it = funcMap.find(builtins::normalize(call.funcName));
+            if (it == funcMap.end()) return;  // semantic قبلاً خطا داده
+            const FunctionDef* func = it->second;
+
+            if (callDepth >= kMaxInlineDepth) {
+                throw runtime_error("Inline expansion too deep at line " +
+                                    to_string(call.line) +
+                                    " (recursive function call?)");
+            }
+
+            // کلون آرگومان‌ها نسبت به جانشینی بیرونی و ساخت نقشه پارامترها
+            SubstMap subs(outerSubs);
+            vector<ExprPtr> clonedArgs;
+            size_t n = min(func->params.size(), call.args.size());
+            for (size_t i = 0; i < n; ++i) {
+                clonedArgs.push_back(cloneExprWithSubst(*call.args[i], outerSubs));
+                subs[func->params[i]] = clonedArgs.back().get();
+            }
+
+            callDepth++;
+            for (const auto& stmt : func->body) {
+                StmtPtr cloned = cloneStmtWithSubst(*stmt, subs);
+                if (cloned) processStmt(*cloned);
+            }
+            callDepth--;
+        };
 
     processStmt = [&](const Stmt& stmt) {
         if (auto assign = dynamic_cast<const AssignmentStmt*>(&stmt)) {
@@ -526,24 +650,24 @@ string generateLadderXml(const Program& program, const Config& config) {
                 if (varType == "BOOL") {
                     // Timer handling
                     if (auto call = dynamic_cast<CallExpr*>(assign->expr.get())) {
-                        if (timerFunctions.find(call->funcName) != timerFunctions.end()) {
+                        const string canonical = builtins::normalize(call->funcName);
+                        if (builtins::isTimer(canonical)) {
                             auto terms = exprToDNF(*call->args[0], config);
-                            string timerType = call->funcName;
                             string duration = exprToString(*call->args[1], &config);
                             out << "  <network name=\"net" << ++networkCounter << "\">\n";
-                            out << generateTimerRung(terms, timerType, duration, assign->name);
+                            out << generateTimerRung(terms, canonical, duration, assign->name);
                             out << "  </network>\n";
                             return;
                         }
-                        else if (counterFunctions.find(call->funcName) != counterFunctions.end()) {
+                        else if (builtins::isCounter(canonical)) {
                             vector<string> argStrs;
                             for (const auto& arg : call->args) {
                                 argStrs.push_back(exprToString(*arg, &config));
                             }
                             string preset = argStrs.back();
-                            argStrs.pop_back(); // remove preset
+                            argStrs.pop_back(); // حذف preset
                             out << "  <network name=\"net" << ++networkCounter << "\">\n";
-                            out << generateCounterRung(call->funcName, argStrs, preset, assign->name);
+                            out << generateCounterRung(canonical, argStrs, preset, assign->name);
                             out << "  </network>\n";
                             return;
                         }
@@ -599,6 +723,24 @@ string generateLadderXml(const Program& program, const Config& config) {
                     out << generateMoveRung({}, addr, source);
                     out << "  </network>\n";
                 }
+            }
+        }
+        else if (auto callStmt = dynamic_cast<const CallStmt*>(&stmt)) {
+            SubstMap emptySubs;
+            expandCall(*callStmt, emptySubs);
+        }
+        else if (auto breakStmt = dynamic_cast<const BreakStmt*>(&stmt)) {
+            if (!breakLabels.empty()) {
+                out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                out << generateJumpRung(breakLabels.back(), "jmp");
+                out << "  </network>\n";
+            }
+        }
+        else if (auto continueStmt = dynamic_cast<const ContinueStmt*>(&stmt)) {
+            if (!continueLabels.empty()) {
+                out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                out << generateJumpRung(continueLabels.back(), "jmp");
+                out << "  </network>\n";
             }
         }
         else if (auto ifStmt = dynamic_cast<const IfStmt*>(&stmt)) {
@@ -713,13 +855,37 @@ string generateLadderXml(const Program& program, const Config& config) {
                             }
                         }
                     }
+                    // break/continue شرطی داخل شاخه if:
+                    // jmpn وقتی پرش می‌کند که جریان برق قطع باشد؛ پس شرطِ نقیض‌شده شاخه را
+                    // می‌فرستیم تا پرش دقیقاً وقتی رخ دهد که شاخه برقرار است
+                    else if (auto brk = dynamic_cast<const BreakStmt*>(innerStmt.get())) {
+                        if (!breakLabels.empty()) {
+                            auto negated = negateDNF(branchCond);
+                            out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                            out << generateJumpRung(breakLabels.back(), "jmpn", &negated);
+                            out << "  </network>\n";
+                        }
+                    }
+                    else if (auto cont = dynamic_cast<const ContinueStmt*>(innerStmt.get())) {
+                        if (!continueLabels.empty()) {
+                            auto negated = negateDNF(branchCond);
+                            out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                            out << generateJumpRung(continueLabels.back(), "jmpn", &negated);
+                            out << "  </network>\n";
+                        }
+                    }
+                    // سایر انواع دستور مرکب داخل شاخه if در semantic_analyzer رد می‌شوند
                 }
             }
         }
         else if (auto forStmt = dynamic_cast<const ForStmt*>(&stmt)) {
             for (int i = forStmt->start; i < forStmt->end; ++i) {
+                // نگاشت متغیر حلقه به مقدار فعلی
+                NumberExpr loopValue(to_string(i), false, forStmt->line, forStmt->column);
+                SubstMap subs;
+                subs[forStmt->varName] = &loopValue;
                 for (const auto& innerStmt : forStmt->body) {
-                    StmtPtr cloned = cloneStmtWithSubst(*innerStmt, forStmt->varName, i);
+                    StmtPtr cloned = cloneStmtWithSubst(*innerStmt, subs);
                     if (cloned) {
                         processStmt(*cloned);
                     }
@@ -737,27 +903,16 @@ string generateLadderXml(const Program& program, const Config& config) {
 
             auto condTerms = exprToDNF(*whileStmt->cond, config);
             out << "  <network name=\"net" << ++networkCounter << "\">\n";
-            out << "    <rung>\n";
-            for (const auto& term : condTerms) {
-                out << "      <branch>\n";
-                for (const auto& contact : term.contacts) {
-                    if (contact.kind == Contact::Kind::VAR) {
-                        string type = contact.negated ? "NC" : "NO";
-                        out << "        <contact address=\"" << escapeXml(contact.name) << "\" type=\"" << type << "\"/>\n";
-                    } else {
-                        out << "        <contact type=\"comparison\" op=\"" << escapeXml(contact.op)
-                            << "\" left=\"" << escapeXml(contact.left) << "\" right=\"" << escapeXml(contact.right) << "\"/>\n";
-                    }
-                }
-                out << "      </branch>\n";
-            }
-            out << "      <jump type=\"jmpn\" label=\"" << escapeXml(endLabel) << "\"/>\n";
-            out << "    </rung>\n";
+            out << generateJumpRung(endLabel, "jmpn", &condTerms);
             out << "  </network>\n";
 
+            breakLabels.push_back(endLabel);
+            continueLabels.push_back(startLabel);
             for (const auto& innerStmt : whileStmt->body) {
                 processStmt(*innerStmt);
             }
+            breakLabels.pop_back();
+            continueLabels.pop_back();
 
             out << "  <network name=\"net" << ++networkCounter << "\">\n";
             out << generateJumpRung(startLabel, "jmp");

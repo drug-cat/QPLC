@@ -12,3 +12,4 @@ E:\QPLC\QPLCSimulator\obj\Debug\net8.0\refint\QPLCSimulator.dll
 E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.pdb
 E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.genruntimeconfig.cache
 E:\QPLC\QPLCSimulator\obj\Debug\net8.0\ref\QPLCSimulator.dll
+E:\QPLC\QPLCSimulator\obj\Debug\net8.0\QPLCSimulator.sourcelink.json

@@ -21,3 +21,4 @@ E:\QPLC\QPLCVisualSimulator\obj\Debug\net10.0-windows\LadderView.baml
 E:\QPLC\QPLCVisualSimulator\obj\Debug\net10.0-windows\LadderView.g.cs
 E:\QPLC\QPLCVisualSimulator\obj\Debug\net10.0-windows\GeneratedInternalTypeHelper.g.cs
 E:\QPLC\QPLCVisualSimulator\obj\Debug\net10.0-windows\QPLCVisualSimulator_MarkupCompile.lref
+E:\QPLC\QPLCVisualSimulator\obj\Debug\net10.0-windows\QPLCVisualSimulator.sourcelink.json

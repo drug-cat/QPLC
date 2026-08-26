@@ -18,3 +18,4 @@ E:\QPLC\QPLCExporter\obj\Debug\net8.0\refint\QPLCExporter.dll
 E:\QPLC\QPLCExporter\obj\Debug\net8.0\QPLCExporter.pdb
 E:\QPLC\QPLCExporter\obj\Debug\net8.0\QPLCExporter.genruntimeconfig.cache
 E:\QPLC\QPLCExporter\obj\Debug\net8.0\ref\QPLCExporter.dll
+E:\QPLC\QPLCExporter\obj\Debug\net8.0\QPLCExporter.sourcelink.json

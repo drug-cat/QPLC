@@ -1,0 +1,23 @@
+# ninja log v7
+46	2016	8094265386186636	CMakeFiles/qplc.dir/src/config/config_parser.cpp.obj	2c8b96b321744113
+24	2026	8094265385956792	CMakeFiles/qplc.dir/src/lexer/lexer.cpp.obj	d1ff5598886cd39
+16	2087	8094265385876538	CMakeFiles/qplc.dir/src/main.cpp.obj	9aec7a3b049ddd6c
+61	2653	8094265386346912	CMakeFiles/qplc.dir/src/semantic/semantic_analyzer.cpp.obj	b22bef593c604aba
+37	3290	8094265386086579	CMakeFiles/qplc.dir/src/parser/parser.cpp.obj	16f5698ac7a5e5e7
+82	4196	8094265386566796	CMakeFiles/qplc.dir/src/codegen/ladder_generator.cpp.obj	69cec70431cbb7f5
+4196	4812	8094265427676568	qplc.exe	7170741e0d3f7542
+12	1458	8094303492851508	CMakeFiles/qplc.dir/src/main.cpp.obj	9aec7a3b049ddd6c
+1459	2237	8094303507321654	qplc.exe	7170741e0d3f7542
+184	2513	8094343165602108	CMakeFiles/qplc.dir/src/lexer/lexer.cpp.obj	d1ff5598886cd39
+199	2533	8094343165761876	CMakeFiles/qplc.dir/src/config/config_parser.cpp.obj	2c8b96b321744113
+15	2685	8094343163922113	CMakeFiles/qplc.dir/src/main.cpp.obj	9aec7a3b049ddd6c
+208	2906	8094343165851791	CMakeFiles/qplc.dir/src/semantic/semantic_analyzer.cpp.obj	b22bef593c604aba
+216	4764	8094343165921786	CMakeFiles/qplc.dir/src/codegen/ladder_generator.cpp.obj	69cec70431cbb7f5
+14	1888	8094348188928232	CMakeFiles/qplc.dir/src/main.cpp.obj	9aec7a3b049ddd6c
+25	2711	8094348189038262	CMakeFiles/qplc.dir/src/parser/parser.cpp.obj	16f5698ac7a5e5e7
+2711	3881	8094348215898313	qplc.exe	7170741e0d3f7542
+11	1889	8094352349739105	CMakeFiles/qplc.dir/src/main.cpp.obj	9aec7a3b049ddd6c
+20	2046	8094352349829012	CMakeFiles/qplc.dir/src/semantic/semantic_analyzer.cpp.obj	b22bef593c604aba
+2046	2781	8094352370089039	qplc.exe	7170741e0d3f7542
+12	3846	8094356107614663	CMakeFiles/qplc.dir/src/codegen/ladder_generator.cpp.obj	69cec70431cbb7f5
+3847	4496	8094356145954614	qplc.exe	7170741e0d3f7542

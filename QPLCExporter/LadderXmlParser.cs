@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Xml.Linq;
 
-namespace QPLCVisualSimulator
+namespace QPLCExporter
 {
     public class LadderElement
     {

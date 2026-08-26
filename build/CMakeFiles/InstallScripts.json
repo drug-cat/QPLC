@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"E:/QPLC/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

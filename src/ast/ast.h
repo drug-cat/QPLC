@@ -132,6 +132,24 @@ struct WhileStmt : Stmt {
         : Stmt(ln, col), cond(std::move(c)), body(std::move(b)) {}
 };
 
+// خروج از حلقه (فقط داخل while معتبر است)
+struct BreakStmt : Stmt {
+    BreakStmt(int ln, int col) : Stmt(ln, col) {}
+};
+
+// پرش به ابتدای حلقه (فقط داخل while معتبر است)
+struct ContinueStmt : Stmt {
+    ContinueStmt(int ln, int col) : Stmt(ln, col) {}
+};
+
+// فراخوانی تابع کاربر به‌عنوان دستور مستقل (بدون مقدار بازگشتی؛ اثر از طریق متغیرهای سراسری)
+struct CallStmt : Stmt {
+    std::string funcName;
+    std::vector<ExprPtr> args;
+    CallStmt(std::string name, std::vector<ExprPtr> a, int ln, int col)
+        : Stmt(ln, col), funcName(std::move(name)), args(std::move(a)) {}
+};
+
 // ---------------- Functions & Program ----------------
 struct FunctionDef {
     std::string name;

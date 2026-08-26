@@ -19,6 +19,8 @@ struct HardwareConfig {
 struct Config {
     HardwareConfig hardware;
     std::unordered_map<std::string, IoMapping> io;
+    // ثابت‌های برنامه از سکشن [constants]: نام → مقدار خام (عدد/اعشاری/T#زمان)
+    std::unordered_map<std::string, std::string> constants;
 };
 
 struct ConfigError {

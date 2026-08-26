@@ -54,6 +54,37 @@ Config parseConfigWithErrors(const string& source, vector<ConfigError>& errors) 
         if (currentSection == "hardware") {
             if (key == "cpu") config.hardware.cpu = value;
             else if (key == "ip") config.hardware.ip = value;
+        } else if (currentSection == "constants") {
+            // مقدار باید عدد صحیح، اعشاری، لیترال زمان T# یا True/False باشد
+            bool valid = !value.empty();
+            if (valid && value != "True" && value != "False" && value.rfind("T#", 0) != 0) {
+                size_t start = (value[0] == '-') ? 1 : 0;
+                if (start >= value.size()) valid = false;
+                else {
+                    bool hasDot = false, hasDigit = false;
+                    for (size_t i = start; i < value.size(); ++i) {
+                        if (value[i] == '.') {
+                            if (hasDot) { valid = false; break; }
+                            hasDot = true;
+                        } else if (isdigit(static_cast<unsigned char>(value[i]))) {
+                            hasDigit = true;
+                        } else {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if (!hasDigit) valid = false;
+                }
+            }
+            if (!valid) {
+                errors.push_back({lineNum, "Invalid constant value for '" + key + "': " + value});
+                continue;
+            }
+            if (config.constants.count(key)) {
+                errors.push_back({lineNum, "Duplicate constant '" + key + "'"});
+                continue;
+            }
+            config.constants[key] = value;
         } else if (currentSection == "io") {
             // value must be address:type[arrayLength]
             size_t colon = value.rfind(':');

@@ -12,7 +12,8 @@ namespace {
 // کلمات کلیدی زبان QPLC
 const unordered_set<string> keywords = {
     "def", "if", "elif", "else", "while", "for", "in",
-    "and", "or", "not", "return", "range", "True", "False"
+    "and", "or", "xor", "not", "return", "range", "True", "False",
+    "break", "continue"
 };
 
 bool isKeyword(const string& word) {
@@ -136,7 +137,7 @@ void tokenizeLine(const string& line, int lineNum, vector<Token>& tokens, int st
 
         // Single-character operators and punctuation
         if (c == '=' || c == '+' || c == '-' || c == '*' || c == '/' ||
-            c == '<' || c == '>') {
+            c == '<' || c == '>' || c == '%') {
             addToken(TokenType::OPERATOR, string(1, c), col);
             i++;
             col++;
@@ -160,9 +161,39 @@ void tokenizeLine(const string& line, int lineNum, vector<Token>& tokens, int st
 
 }  // namespace
 
+namespace {
+
+// حذف کامنت‌های بلوکی /* */ از کل سورس؛ خطوط حفظ می‌شوند تا شماره خط‌ها درست بماند
+string stripBlockComments(const string& src) {
+    string out = src;
+    bool inComment = false;
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (!inComment && i + 1 < out.size() && out[i] == '/' && out[i + 1] == '*') {
+            inComment = true;
+            out[i] = ' ';
+            out[i + 1] = ' ';
+            ++i;
+            continue;
+        }
+        if (inComment) {
+            if (i + 1 < out.size() && out[i] == '*' && out[i + 1] == '/') {
+                out[i] = ' ';
+                out[i + 1] = ' ';
+                inComment = false;
+                ++i;
+            } else if (out[i] != '\n') {
+                out[i] = ' ';
+            }
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
 vector<Token> tokenize(const string& source) {
     vector<Token> tokens;
-    istringstream input(source);
+    istringstream input(stripBlockComments(source));
     string line;
     int lineNum = 0;
     vector<int> indentStack = {0};  // سطح تورفتگی فعلی (شروع با ۰)
