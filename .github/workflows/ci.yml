@@ -67,8 +67,18 @@ jobs:
   build-dotnet:
     name: .NET (Ubuntu)
     runs-on: ubuntu-latest
+    needs: build-cpp-ubuntu
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download qplc (Linux)
+        uses: actions/download-artifact@v4
+        with:
+          name: qplc-linux
+          path: build
+
+      - name: Make qplc executable
+        run: chmod +x build/qplc
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
