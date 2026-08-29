@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Package metadata — used by `dotnet pack` and nuget.org -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>QPLC.Core</RootNamespace>
+    <AssemblyName>QPLC.Core</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>QPLC.Core</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>QPLC Contributors</Authors>
+    <Company>QPLC Project</Company>
+    <Description>A cross-platform PLC ladder logic simulator with Modbus TCP, time-travel debugging, and IEC 61131-3 support.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageTags>plc;ladder;iec61131;modbus;simulator;scada;plc-simulator</PackageTags>
+    <RepositoryUrl>https://github.com/YOUR_USERNAME/QPLC</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/YOUR_USERNAME/QPLC</PackageProjectUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- StyleCop.Analyzers for code-quality enforcement -->
+  <ItemGroup>
+    <PackageReference Include="StyleCop.Analyzers" Version="1.2.0-beta.556" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Link stylecop.json so the analyzer finds its settings -->
+  <ItemGroup>
+    <AdditionalFiles Include="stylecop.json" />
+  </ItemGroup>
+
+</Project>

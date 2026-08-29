@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<networks>
+  <network name="net1">
+    <rung>
+      <branch>
+        <contact address="start_button" type="NO"/>
+        <contact address="stop_button" type="NC"/>
+      </branch>
+      <coil address="motor_run"/>
+    </rung>
+  </network>
+  <network name="net2">
+    <rung>
+      <branch>
+        <contact type="comparison" op="gt" left="temperature" right="30.0"/>
+      </branch>
+      <coil address="cooling_valve"/>
+    </rung>
+  </network>
+  <network name="net3">
+    <rung>
+      <branch>
+        <contact type="comparison" op="le" left="temperature" right="30.0"/>
+        <contact type="comparison" op="gt" left="temperature" right="20.0"/>
+      </branch>
+      <coil address="cooling_valve"/>
+    </rung>
+  </network>
+  <network name="net4">
+    <rung>
+      <branch>
+        <contact type="comparison" op="le" left="temperature" right="30.0"/>
+        <contact type="comparison" op="le" left="temperature" right="20.0"/>
+      </branch>
+      <coil address="cooling_valve" type="reset"/>
+    </rung>
+  </network>
+  <network name="net5">
+    <rung>
+      <branch>
+        <contact address="start_button" type="NO"/>
+      </branch>
+      <timer type="on_delay" duration="T#2s" output="timer_output"/>
+    </rung>
+  </network>
+  <network name="net6">
+    <rung>
+      <branch>
+        <contact address="stop_button" type="NO"/>
+      </branch>
+      <timer type="off_delay" duration="T#1s" output="valve"/>
+    </rung>
+  </network>
+  <network name="net7">
+    <rung>
+      <branch>
+        <contact address="emergency" type="NO"/>
+      </branch>
+      <timer type="pulse" duration="T#3s" output="lamp"/>
+    </rung>
+  </network>
+  <network name="net8">
+    <rung>
+      <counter type="count_up" input="sensor" reset="reset" preset="3" output="done"/>
+    </rung>
+  </network>
+  <network name="net9">
+    <rung>
+      <counter type="count_down" input="close_input" load="load" preset="5" output="finished"/>
+    </rung>
+  </network>
+  <network name="net10">
+    <rung>
+      <counter type="count_updown" up="up_input" down="down_input" reset="reset_updown" load="load_updown" preset="10" output="result"/>
+    </rung>
+  </network>
+  <network name="net11">
+    <rung>
+      <branch>
+        <contact address="I0.0" type="NO"/>
+        <contact address="enable" type="NO"/>
+      </branch>
+      <coil address="Q0.0"/>
+    </rung>
+  </network>
+  <network name="net12">
+    <rung>
+      <branch>
+        <contact address="I0.1" type="NO"/>
+        <contact address="enable" type="NO"/>
+      </branch>
+      <coil address="Q0.1"/>
+    </rung>
+  </network>
+  <network name="net13">
+    <rung>
+      <branch>
+        <contact address="I0.2" type="NO"/>
+        <contact address="enable" type="NO"/>
+      </branch>
+      <coil address="Q0.2"/>
+    </rung>
+  </network>
+  <network name="net14">
+    <rung>
+      <branch>
+        <contact address="I0.3" type="NO"/>
+        <contact address="enable" type="NO"/>
+      </branch>
+      <coil address="Q0.3"/>
+    </rung>
+  </network>
+  <network name="net15">
+    <rung>
+      <branch>
+      </branch>
+      <coil address="loop_condition"/>
+    </rung>
+  </network>
+  <network name="net16">
+    <rung>
+      <label name="WHILE_START_1"/>
+    </rung>
+  </network>
+  <network name="net17">
+    <rung>
+      <branch>
+        <contact address="loop_condition" type="NO"/>
+      </branch>
+      <jump type="jmpn" label="WHILE_END_1"/>
+    </rung>
+  </network>
+  <network name="net18">
+    <rung>
+      <branch>
+      </branch>
+      <coil address="loop_output"/>
+    </rung>
+  </network>
+  <network name="net19">
+    <rung>
+      <jump type="jmp" label="WHILE_START_1"/>
+    </rung>
+  </network>
+  <network name="net20">
+    <rung>
+      <label name="WHILE_END_1"/>
+    </rung>
+  </network>
+</networks>

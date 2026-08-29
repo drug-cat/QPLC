@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: false
+        type: string
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  CMAKE_VERSION: '3.28.1'
+
+jobs:
+  # ── Build C++ on Windows (MSYS2) ───────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: |
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-ninja
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build-release
+          cmake -S . -B build-release \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+
+      - name: Build
+        run: cmake --build build-release --config Release
+
+      - name: Install
+        run: cmake --install build-release --config Release
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: qplc-windows
+          path: install/bin/qplc.exe
+          retention-days: 90
+
+  # ── Build C++ on Ubuntu ────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build-release
+          cmake -S . -B build-release \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+
+      - name: Build
+        run: cmake --build build-release --config Release
+
+      - name: Install
+        run: cmake --install build-release --config Release
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: qplc-linux
+          path: install/bin/qplc
+          retention-days: 90
+
+  # ── Build .NET projects ────────────────────────────────────────────────────
+  build-dotnet:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore NuGet packages
+        run: dotnet restore QPLC.slnx
+
+      - name: Build all .NET projects
+        run: dotnet build QPLC.slnx --configuration Release --no-restore
+
+      - name: Pack QPLC.Core
+        run: dotnet pack QPLC.Core/QPLC.Core.csproj --configuration Release --no-build -o out/packages
+
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: qplc-nupkg
+          path: out/packages/*.nupkg
+          retention-days: 90
+
+  # ── Create GitHub Release ──────────────────────────────────────────────────
+  release:
+    needs: [build-windows, build-linux, build-dotnet]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Determine version
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create Release Draft
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          files: |
+            artifacts/qplc-windows/qplc.exe
+            artifacts/qplc-linux/qplc
+            artifacts/qplc-nupkg/*.nupkg
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

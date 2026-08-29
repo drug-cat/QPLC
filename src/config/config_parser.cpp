@@ -55,7 +55,7 @@ Config parseConfigWithErrors(const string& source, vector<ConfigError>& errors) 
             if (key == "cpu") config.hardware.cpu = value;
             else if (key == "ip") config.hardware.ip = value;
         } else if (currentSection == "constants") {
-            // مقدار باید عدد صحیح، اعشاری، لیترال زمان T# یا True/False باشد
+            // Value must be an integer, float, T# time literal, or True/False
             bool valid = !value.empty();
             if (valid && value != "True" && value != "False" && value.rfind("T#", 0) != 0) {
                 size_t start = (value[0] == '-') ? 1 : 0;
@@ -96,7 +96,7 @@ Config parseConfigWithErrors(const string& source, vector<ConfigError>& errors) 
             mapping.address = trim(value.substr(0, colon));
             string typePart = trim(value.substr(colon + 1));
 
-            // بررسی آرایه
+            // Array check
             size_t bracket = typePart.find('[');
             if (bracket != string::npos) {
                 size_t closeBracket = typePart.find(']', bracket);

@@ -9,7 +9,7 @@ using namespace std;
 
 namespace {
 
-// کلمات کلیدی زبان QPLC
+// QPLC language keywords
 const unordered_set<string> keywords = {
     "def", "if", "elif", "else", "while", "for", "in",
     "and", "or", "xor", "not", "return", "range", "True", "False",
@@ -28,7 +28,7 @@ bool isIdentifierChar(char c) {
     return isalnum(c) || c == '_';
 }
 
-// شمارش تورفتگی یک خط (تعداد فاصله‌ها / tab به‌عنوان ۴ فاصله)
+// Count indentation of a line (number of spaces / tab treated as 4 spaces)
 int countIndent(const string& line) {
     int indent = 0;
     for (char c : line) {
@@ -39,7 +39,7 @@ int countIndent(const string& line) {
     return indent;
 }
 
-// حذف فاصله‌های ابتدای خط
+// Strip leading whitespace from a line
 string stripIndent(const string& line) {
     size_t pos = 0;
     while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) {
@@ -48,11 +48,11 @@ string stripIndent(const string& line) {
     return line.substr(pos);
 }
 
-// توکنایز کردن یک خط (بدون تورفتگی)
+// Tokenize a single line (without indentation)
 void tokenizeLine(const string& line, int lineNum, vector<Token>& tokens, int startCol) {
     size_t i = 0;
     const size_t n = line.size();
-    int col = startCol;  // ستون شروع (۱-based)
+    int col = startCol;  // starting column (1-based)
 
     auto addToken = [&](TokenType type, const string& lexeme, int tokenCol) {
         tokens.emplace_back(type, lexeme, lineNum, tokenCol);
@@ -163,7 +163,7 @@ void tokenizeLine(const string& line, int lineNum, vector<Token>& tokens, int st
 
 namespace {
 
-// حذف کامنت‌های بلوکی /* */ از کل سورس؛ خطوط حفظ می‌شوند تا شماره خط‌ها درست بماند
+// Strip block comments /* */ from the entire source; newlines are preserved so line numbers stay correct
 string stripBlockComments(const string& src) {
     string out = src;
     bool inComment = false;
@@ -196,32 +196,32 @@ vector<Token> tokenize(const string& source) {
     istringstream input(stripBlockComments(source));
     string line;
     int lineNum = 0;
-    vector<int> indentStack = {0};  // سطح تورفتگی فعلی (شروع با ۰)
+    vector<int> indentStack = {0};  // current indentation level (starts at 0)
 
     while (getline(input, line)) {
         lineNum++;
 
-        // حذف \r در انتهای خط (برای ویندوز)
+        // Strip trailing \r (for Windows line endings)
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
         }
 
-        // اگر خط فقط شامل فاصله/تب باشد یا کامنت باشد، آن را نادیده می‌گیریم
+        // If the line contains only whitespace/tabs or is a comment, ignore it
         string trimmed = stripIndent(line);
         if (trimmed.empty() || trimmed[0] == '#') {
             continue;
         }
 
-        // محاسبه تورفتگی
+        // Compute indentation
         int indent = countIndent(line);
 
-        // مقایسه با استک تورفتگی
+        // Compare with the indentation stack
         if (indent > indentStack.back()) {
-            // تورفتگی بیشتر -> INDENT
+            // Increased indentation -> INDENT
             indentStack.push_back(indent);
             tokens.emplace_back(TokenType::INDENT, "", lineNum, 1);
         } else if (indent < indentStack.back()) {
-            // تورفتگی کمتر -> چند DEDENT
+            // Decreased indentation -> one or more DEDENT
             while (indent < indentStack.back()) {
                 indentStack.pop_back();
                 tokens.emplace_back(TokenType::DEDENT, "", lineNum, 1);
@@ -229,22 +229,22 @@ vector<Token> tokenize(const string& source) {
             if (indent != indentStack.back()) {
                 cerr << "Lexer error at line " << lineNum
                      << ": inconsistent dedent (no matching indentation level)\n";
-                // بازیابی: تنظیم استک به سطح فعلی
+                // Recovery: set the stack to the current level
                 indentStack.push_back(indent);
             }
         }
 
-        // توکنایز کردن خود خط (بدون تورفتگی)
-        int startCol = indent + 1;  // ستون اولین کاراکتر غیرفضا
+        // Tokenize the line itself (without indentation)
+        int startCol = indent + 1;  // column of the first non-space character
         string content = stripIndent(line);
         if (!content.empty()) {
             tokenizeLine(content, lineNum, tokens, startCol);
-            // خط منطقی تمام شده -> NEWLINE
+            // End of logical line -> NEWLINE
             tokens.emplace_back(TokenType::NEWLINE, "", lineNum, static_cast<int>(content.size()) + startCol);
         }
     }
 
-    // در پایان فایل: اگر خطوط باز داریم، DEDENT صادر کن
+    // At end of file: emit DEDENT for any still-open indentation levels
     while (indentStack.size() > 1) {
         indentStack.pop_back();
         tokens.emplace_back(TokenType::DEDENT, "", lineNum, 1);

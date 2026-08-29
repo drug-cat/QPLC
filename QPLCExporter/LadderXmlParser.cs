@@ -152,7 +152,7 @@ namespace QPLCExporter
                     element.Input2 = (string?)elem.Attribute("reset") ?? "";
                     element.Input3 = (string?)elem.Attribute("load") ?? "";
                     element.Input4 = (string?)elem.Attribute("up") ?? "";
-                    // برای count_updown: down هم ممکن است
+                    // for count_updown: down may also be present
                     if (string.IsNullOrEmpty(element.Input4))
                         element.Input4 = (string?)elem.Attribute("down") ?? "";
                     break;

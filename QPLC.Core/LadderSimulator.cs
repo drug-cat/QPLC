@@ -3,8 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace QPLCSimulator
+namespace QPLC.Core
 {
+    /// <summary>
+    /// Ladder execution engine: timers, counters, edges, comparisons, math expressions
+    /// (IEC: MIN/MAX/ABS/LIMIT/SEL/MUX), and time-travel trace (circular scan buffer).
+    /// </summary>
     public class LadderSimulator
     {
         private readonly List<LadderNetwork> networks;
@@ -12,16 +16,17 @@ namespace QPLCSimulator
         private readonly Dictionary<string, double> numVars = new();
         private readonly Dictionary<string, TimerInstance> timers = new();
         private readonly Dictionary<string, CounterInstance> counters = new();
-
-        // وضعیت لبه هر کنتاکت (کلید = مرجع المان)
         private readonly Dictionary<object, bool> edgePrev = new();
-        // آخرین وضعیت هدایت هر المان در اسکن — منبع واحد حقیقت برای رنگ‌آمیزی UI
         private readonly Dictionary<object, bool> lastConduction = new();
+
+        /// <summary>Circular snapshot buffer for time-travel debugging.</summary>
+        private readonly LinkedList<TraceSnapshot> traceBuffer = new();
+        private const int MaxTraceSnapshots = 1000;
 
         public double CurrentTime { get; private set; } = 0.0;
         public long ScanCount { get; private set; } = 0;
         public string LastWarning { get; private set; } = "";
-        public int MaxStepsPerScan { get; set; } = 100000;
+        public int MaxStepsPerScan { get; set; } = 100_000;
 
         public LadderSimulator(List<LadderNetwork> networks)
         {
@@ -86,14 +91,14 @@ namespace QPLCSimulator
         }
 
         private static bool IsNumericLiteral(string s) => double.TryParse(s, out _);
-
-        // فقط شناسه‌های ساده (متغیر/آدرس) متغیر ثبت می‌شوند، نه عبارت‌هایی مثل "(a + 1)"
         private static bool IsPlainIdentifier(string? s) =>
             !string.IsNullOrWhiteSpace(s) && Regex.IsMatch(s, "^[A-Za-z_][A-Za-z0-9_.]*$");
 
         public void SetBool(string name, bool value) => boolVars[name] = value;
         public void SetNumeric(string name, double value) => numVars[name] = value;
         public void AdvanceTime(double ms) => CurrentTime += ms;
+        public IReadOnlyDictionary<string, bool> BoolVars => boolVars;
+        public IReadOnlyDictionary<string, double> NumVars => numVars;
 
         public void Reset()
         {
@@ -106,6 +111,7 @@ namespace QPLCSimulator
             CurrentTime = 0.0;
             ScanCount = 0;
             LastWarning = "";
+            traceBuffer.Clear();
         }
 
         public void ShowVariables()
@@ -123,39 +129,37 @@ namespace QPLCSimulator
         {
             LastWarning = "";
             ScanCount++;
-            foreach (var network in networks)
-                ProcessNetwork(network);
-        }
 
-        // ------------------- Network execution with jumps -------------------
-
-        private void ProcessNetwork(LadderNetwork network)
-        {
-            var rungs = network.Rungs;
-
-            // جدول برچسب‌های این شبکه
+            var flatRungs = new List<(LadderRung rung, int netIdx, int rungIdx)>();
             var labelIndex = new Dictionary<string, int>();
-            for (int i = 0; i < rungs.Count; i++)
-                if (rungs[i].Label != null)
-                    labelIndex[rungs[i].Label!.Label] = i;
+            for (int n = 0; n < networks.Count; n++)
+            {
+                var rungs = networks[n].Rungs;
+                for (int r = 0; r < rungs.Count; r++)
+                {
+                    int idx = flatRungs.Count;
+                    flatRungs.Add((rungs[r], n, r));
+                    if (rungs[r].Label != null)
+                        labelIndex[rungs[r].Label!.Label] = idx;
+                }
+            }
 
             int pc = 0;
             long steps = 0;
-            while (pc < rungs.Count)
+            while (pc < flatRungs.Count)
             {
                 if (++steps > MaxStepsPerScan)
                 {
-                    LastWarning = $"Step limit ({MaxStepsPerScan}) exceeded in '{network.Name}' - possible infinite loop";
+                    LastWarning = $"Step limit ({MaxStepsPerScan}) exceeded - possible infinite loop";
                     break;
                 }
 
-                var rung = rungs[pc];
+                var (rung, _, _) = flatRungs[pc];
                 bool powerFlow = EvaluateRungCondition(rung);
                 ProcessRungOutputs(rung, powerFlow);
 
                 if (rung.Jump != null)
                 {
-                    // jmp: پرش همیشگی؛ jmpn: پرش فقط وقتی جریان برق قطع است
                     bool jumpNow = rung.Jump.JumpType == "jmp" || !powerFlow;
                     if (jumpNow && labelIndex.TryGetValue(rung.Jump.Label, out int target))
                     {
@@ -165,7 +169,37 @@ namespace QPLCSimulator
                 }
                 pc++;
             }
+
+            CaptureSnapshot();
         }
+
+        private void CaptureSnapshot()
+        {
+            var snap = new TraceSnapshot
+            {
+                ScanNumber = ScanCount,
+                Time = CurrentTime,
+                BoolState = new Dictionary<string, bool>(boolVars),
+                NumState = new Dictionary<string, double>(numVars)
+            };
+            traceBuffer.AddLast(snap);
+            while (traceBuffer.Count > MaxTraceSnapshots)
+                traceBuffer.RemoveFirst();
+        }
+
+        /// <summary>Number of snapshots currently in the trace buffer.</summary>
+        public int TraceCount => traceBuffer.Count;
+
+        /// <summary>The nth snapshot from the end of the buffer (0 = newest, TraceCount-1 = oldest).</summary>
+        public TraceSnapshot? GetTraceSnapshot(int fromEnd)
+        {
+            if (fromEnd < 0 || fromEnd >= traceBuffer.Count) return null;
+            var node = traceBuffer.Last;
+            for (int i = 0; i < fromEnd && node != null; i++) node = node.Previous;
+            return node?.Value;
+        }
+
+        public IReadOnlyList<TraceSnapshot> GetAllSnapshots() => traceBuffer.ToList();
 
         private void ProcessRungOutputs(LadderRung rung, bool powerFlow)
         {
@@ -291,10 +325,13 @@ namespace QPLCSimulator
             boolVars[outputVar] = timer.Output;
         }
 
-        // مقدار زمان سپری‌شده تایمر برای نمایش زنده در UI
-        public double GetTimerElapsedMs(string outputVar)
+        public double GetTimerElapsedMs(string outputVar) =>
+            timers.TryGetValue(outputVar, out var t) ? Math.Max(0.0, CurrentTime - t.StartTime) : 0.0;
+
+        public double GetTimerRemainingMs(string outputVar)
         {
-            return timers.TryGetValue(outputVar, out var t) ? Math.Max(0.0, CurrentTime - t.StartTime) : 0.0;
+            if (!timers.TryGetValue(outputVar, out var t)) return 0.0;
+            return Math.Max(0.0, t.DurationMs - (CurrentTime - t.StartTime));
         }
 
         // ------------------- Counters -------------------
@@ -351,18 +388,18 @@ namespace QPLCSimulator
             switch (counter.Type)
             {
                 case "count_up":
-                    if (in2) counter.Count = 0; // reset
+                    if (in2) counter.Count = 0;
                     else if (edge1) counter.Count++;
                     break;
 
                 case "count_down":
-                    if (in2) counter.Count = counter.Preset; // load
+                    if (in2) counter.Count = counter.Preset;
                     else if (edge1) counter.Count--;
                     break;
 
                 case "count_updown":
-                    if (in3) counter.Count = 0; // reset
-                    else if (in4) counter.Count = counter.Preset; // load
+                    if (in3) counter.Count = 0;
+                    else if (in4) counter.Count = counter.Preset;
                     else
                     {
                         if (edge1) counter.Count++;
@@ -371,7 +408,6 @@ namespace QPLCSimulator
                     break;
             }
 
-            // محدودیت شمارنده
             if (counter.Count < 0) counter.Count = 0;
             if (counter.Count > 32767) counter.Count = 32767;
 
@@ -385,11 +421,8 @@ namespace QPLCSimulator
             boolVars[outputVar] = counter.Output;
         }
 
-        // مقدار فعلی شمارنده برای نمایش زنده در UI
-        public int GetCounterValue(string outputVar)
-        {
-            return counters.TryGetValue(outputVar, out var c) ? c.Count : 0;
-        }
+        public int GetCounterValue(string outputVar) =>
+            counters.TryGetValue(outputVar, out var c) ? c.Count : 0;
 
         private static double ParseTimeLiteral(string timeStr)
         {
@@ -425,29 +458,24 @@ namespace QPLCSimulator
                 bool branchResult = true;
                 foreach (var elem in branch)
                 {
-                    if (!EvaluateElement(elem))
-                    {
-                        branchResult = false;
-                    }
+                    if (!EvaluateElement(elem)) branchResult = false;
                 }
                 if (branchResult) anyTrue = true;
             }
             return anyTrue;
         }
 
-        // ارزیابی بدون اثر جانبی — فقط برای پرس‌وجوی UI خارج از اسکن
         private bool EvaluateContactStateless(LadderElement elem)
         {
             if (elem.Type != "contact") return false;
             if (elem.ContactType == "comparison")
                 return EvaluateComparison(elem.Op, elem.Left, elem.Right);
             if (elem.ContactType == "rising" || elem.ContactType == "falling")
-                return false; // لبه خارج از اسکن وضعیت ندارد
+                return false;
             bool state = boolVars.TryGetValue(elem.Address, out bool val) && val;
             return elem.ContactType == "NO" ? state : !state;
         }
 
-        // منبع واحد حقیقت برای رنگ‌آمیزی نمای گرافیکی
         public bool IsContactActive(LadderElement elem)
         {
             if (lastConduction.TryGetValue(elem, out bool cached)) return cached;
@@ -469,7 +497,6 @@ namespace QPLCSimulator
 
                 if (elem.ContactType == "rising" || elem.ContactType == "falling")
                 {
-                    // تشخیص لبه با حافظه وضعیت قبلی (کلید = مرجع المان)
                     bool cur = boolVars.TryGetValue(elem.Address, out bool cv) && cv;
                     bool prev = edgePrev.TryGetValue(elem, out bool pv) && pv;
                     bool result = elem.ContactType == "rising" ? (cur && !prev) : (!cur && prev);
@@ -499,7 +526,7 @@ namespace QPLCSimulator
             };
         }
 
-        // ------------------- Numeric expression evaluator -------------------
+        // ------------------- Numeric expression evaluator with IEC math -------------------
 
         public double GetNumericValue(string expr)
         {
@@ -509,13 +536,10 @@ namespace QPLCSimulator
             int pos = 0;
             try
             {
-                double value = EvalAddSub(src, ref pos);
+                double value = EvalExpression(src, ref pos);
                 if (pos == src.Length) return value;
             }
-            catch (FormatException)
-            {
-                // عبارت قابل ارزیابی نبود → جستجوی متغیر
-            }
+            catch (FormatException) { }
 
             if (numVars.TryGetValue(expr, out double val)) return val;
             if (boolVars.TryGetValue(expr, out bool b)) return b ? 1.0 : 0.0;
@@ -525,14 +549,77 @@ namespace QPLCSimulator
         private static bool IsIdentChar(char c) =>
             char.IsLetterOrDigit(c) || c == '_' || c == '.';
 
+        private double EvalExpression(string s, ref int pos)
+        {
+            return EvalIecFunction(s, ref pos);
+        }
+
+        private double EvalIecFunction(string s, ref int pos)
+        {
+            SkipSpaces(s, ref pos);
+            int save = pos;
+            int idStart = pos;
+            while (pos < s.Length && IsIdentChar(s[pos])) pos++;
+            if (pos > idStart)
+            {
+                string name = s.Substring(idStart, pos - idStart);
+                SkipSpaces(s, ref pos);
+                if (pos < s.Length && s[pos] == '(')
+                {
+                    pos++;
+                    var args = new List<double>();
+                    while (true)
+                    {
+                        args.Add(EvalIecFunction(s, ref pos));
+                        SkipSpaces(s, ref pos);
+                        if (pos < s.Length && s[pos] == ',') { pos++; continue; }
+                        break;
+                    }
+                    if (pos >= s.Length || s[pos] != ')') throw new FormatException();
+                    pos++;
+                    return ApplyIecFunction(name.ToLowerInvariant(), args);
+                }
+                pos = save;
+            }
+            return EvalAddSub(s, ref pos);
+        }
+
+        private static double ApplyIecFunction(string name, List<double> args)
+        {
+            return name switch
+            {
+                "min" or "MIN" => args.Count >= 1 ? args.Min() : 0.0,
+                "max" or "MAX" => args.Count >= 1 ? args.Max() : 0.0,
+                "abs" or "ABS" => args.Count >= 1 ? Math.Abs(args[0]) : 0.0,
+                "limit" or "LIMIT" or "clamp" =>
+                    args.Count >= 3 ? Math.Max(args[1], Math.Min(args[2], args[0])) : 0.0,
+                "sel" or "SEL" =>
+                    args.Count >= 3 ? ((args[0] != 0.0) ? args[2] : args[1]) : 0.0,
+                "mux" or "MUX" =>
+                    args.Count >= 2 ? args[Math.Clamp((int)args[0], 0, args.Count - 1) + 1] : 0.0,
+                "sin" => args.Count >= 1 ? Math.Sin(args[0]) : 0.0,
+                "cos" => args.Count >= 1 ? Math.Cos(args[0]) : 0.0,
+                "sqrt" => args.Count >= 1 ? Math.Sqrt(args[0]) : 0.0,
+                "sqr" => args.Count >= 1 ? args[0] * args[0] : 0.0,
+                "mod" => args.Count >= 2 ? args[0] % args[1] : 0.0,
+                _ => throw new FormatException($"unknown function: {name}")
+            };
+        }
+
         private double EvalAddSub(string s, ref int pos)
         {
             double left = EvalMulDiv(s, ref pos);
-            while (pos < s.Length && (s[pos] == '+' || s[pos] == '-'))
+            while (true)
             {
-                char op = s[pos++];
-                double right = EvalMulDiv(s, ref pos);
-                left = op == '+' ? left + right : left - right;
+                SkipSpaces(s, ref pos);
+                if (pos >= s.Length) break;
+                if (s[pos] == '+' || s[pos] == '-')
+                {
+                    char op = s[pos++];
+                    double right = EvalMulDiv(s, ref pos);
+                    left = op == '+' ? left + right : left - right;
+                }
+                else break;
             }
             return left;
         }
@@ -540,13 +627,19 @@ namespace QPLCSimulator
         private double EvalMulDiv(string s, ref int pos)
         {
             double left = EvalUnary(s, ref pos);
-            while (pos < s.Length && (s[pos] == '*' || s[pos] == '/' || s[pos] == '%'))
+            while (true)
             {
-                char op = s[pos++];
-                double right = EvalUnary(s, ref pos);
-                if (op == '*') left *= right;
-                else if (op == '/') left /= right;
-                else left %= right;
+                SkipSpaces(s, ref pos);
+                if (pos >= s.Length) break;
+                if (s[pos] == '*' || s[pos] == '/' || s[pos] == '%')
+                {
+                    char op = s[pos++];
+                    double right = EvalUnary(s, ref pos);
+                    if (op == '*') left *= right;
+                    else if (op == '/') left /= right;
+                    else left %= right;
+                }
+                else break;
             }
             return left;
         }
@@ -572,7 +665,6 @@ namespace QPLCSimulator
             SkipSpaces(s, ref pos);
             if (pos >= s.Length) throw new FormatException();
 
-            // پرانتز
             if (s[pos] == '(')
             {
                 pos++;
@@ -583,13 +675,11 @@ namespace QPLCSimulator
                 return v;
             }
 
-            // عدد
             int numStart = pos;
             while (pos < s.Length && (char.IsDigit(s[pos]) || s[pos] == '.')) pos++;
             if (pos > numStart)
                 return double.Parse(s.Substring(numStart, pos - numStart));
 
-            // شناسه (متغیر بولی یا عددی؛ آدرس‌هایی مثل Q0.0 هم شناسه محسوب می‌شوند)
             int idStart = pos;
             while (pos < s.Length && IsIdentChar(s[pos])) pos++;
             if (pos > idStart)
@@ -614,5 +704,19 @@ namespace QPLCSimulator
             if (double.TryParse(expr, out double d)) return d != 0;
             return false;
         }
+    }
+
+    /// <summary>A scan snapshot for time-travel debugging.</summary>
+    public class TraceSnapshot
+    {
+        public long ScanNumber { get; set; }
+        public double Time { get; set; }
+        public Dictionary<string, bool> BoolState { get; set; } = new();
+        public Dictionary<string, double> NumState { get; set; } = new();
+
+        public bool? GetBool(string name) =>
+            BoolState.TryGetValue(name, out var v) ? v : null;
+        public double? GetNum(string name) =>
+            NumState.TryGetValue(name, out var v) ? v : null;
     }
 }

@@ -1,10 +1,9 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Xml.Linq;
 
-namespace QPLCVisualSimulator
+namespace QPLC.Core
 {
+    /// <summary>A simple element in a ladder branch (contact, coil, timer, counter, ...).</summary>
     public class LadderElement
     {
         public string Type { get; set; } = "";
@@ -17,6 +16,7 @@ namespace QPLCVisualSimulator
         public string JumpType { get; set; } = "";
         public string Dest { get; set; } = "";
         public string Source { get; set; } = "";
+
         public string Input1 { get; set; } = "";
         public string Input2 { get; set; } = "";
         public string Input3 { get; set; } = "";
@@ -24,9 +24,10 @@ namespace QPLCVisualSimulator
         public string Preset { get; set; } = "";
     }
 
+    /// <summary>A ladder rung with several parallel branches and one output (coil/move/jump/label/timer/counter).</summary>
     public class LadderRung
     {
-        public List<List<LadderElement>> Branches { get; set; } = new List<List<LadderElement>>();
+        public List<List<LadderElement>> Branches { get; set; } = new();
         public LadderElement? Coil { get; set; }
         public LadderElement? Move { get; set; }
         public LadderElement? Jump { get; set; }
@@ -35,12 +36,14 @@ namespace QPLCVisualSimulator
         public LadderElement? Counter { get; set; }
     }
 
+    /// <summary>A network containing several rungs.</summary>
     public class LadderNetwork
     {
         public string Name { get; set; } = "";
-        public List<LadderRung> Rungs { get; set; } = new List<LadderRung>();
+        public List<LadderRung> Rungs { get; set; } = new();
     }
 
+    /// <summary>Parses the QPLC compiler's XML output into a tree of rungs.</summary>
     public static class LadderXmlParser
     {
         public static List<LadderNetwork> Parse(string filePath)
@@ -59,7 +62,6 @@ namespace QPLCVisualSimulator
                 {
                     var rung = new LadderRung();
 
-                    // Branches
                     foreach (var branchElem in rungElem.Elements("branch"))
                     {
                         var branch = new List<LadderElement>();
@@ -70,7 +72,6 @@ namespace QPLCVisualSimulator
                         rung.Branches.Add(branch);
                     }
 
-                    // Direct elements
                     var coil = rungElem.Element("coil");
                     if (coil != null) rung.Coil = ParseElement(coil);
 
@@ -152,7 +153,7 @@ namespace QPLCVisualSimulator
                     element.Input2 = (string?)elem.Attribute("reset") ?? "";
                     element.Input3 = (string?)elem.Attribute("load") ?? "";
                     element.Input4 = (string?)elem.Attribute("up") ?? "";
-                    if (string.IsNullOrEmpty(element.Input4))
+                    if (string.IsNullOrEmpty(element.Input4) && elem.Attribute("down") != null)
                         element.Input4 = (string?)elem.Attribute("down") ?? "";
                     break;
             }

@@ -1,0 +1,92 @@
+# ==========================================
+# QPLC — .gitignore
+# ==========================================
+
+# ---- C++ build artifacts ----
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+compile_commands.json
+*.o
+*.obj
+*.pdb
+*.ilk
+*.pdb
+*.exp
+*.lib
+*.a
+*.so
+*.dylib
+*.stackdump
+ninja_log.bin
+
+# ---- C++ output files ----
+output.xml
+output.xmlm
+
+# ---- .NET build output ----
+**/bin/
+**/obj/
+**/TestResults/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.nupkg
+*.snupkg
+
+# ---- NuGet packages ----
+packages/
+*.nuget.props
+*.nuget.targets
+
+# ---- Compiled binaries ----
+*.exe
+*.dll
+*.pdb
+qplc.exe
+
+# ---- Archives ----
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+
+# ---- Logs ----
+*.log
+log.txt
+
+# ---- IDE ----
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Test/temp ----
+*.xml.tmp
+tests/*.xml
+tests/*.out
+!tests/golden_test_all.xml
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- ZCode / editor session artifacts ----
+.zcode/
+
+# ---- VitePress build output ----
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+node_modules/

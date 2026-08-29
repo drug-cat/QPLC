@@ -27,8 +27,8 @@ struct Token {
         : type(t), lexeme(std::move(lex)), line(ln), column(col) {}
 };
 
-// توکنایز کردن کل سورس
+// Tokenize the entire source
 std::vector<Token> tokenize(const std::string& source);
 
-// تبدیل نوع توکن به رشته برای نمایش
+// Convert token type to string for display
 std::string tokenTypeToString(TokenType type);

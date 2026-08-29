@@ -9,6 +9,8 @@
 #include "config/config_parser.h"
 #include "semantic/semantic_analyzer.h"
 #include "codegen/ladder_generator.h"
+#include "codegen/scl_generator.h"
+#include "lsp/lsp_server.h"
 
 // ------------------- Debug dumps (--tokens / --ast) -------------------
 
@@ -117,7 +119,7 @@ static void printProgram(const Program& program) {
 }
 
 int main(int argc, char* argv[]) {
-    // استفاده: qplc <conf.qplc> <source.q> [-o output.xml] [-s output.scl] [--tokens] [--ast]
+    // Usage: qplc <conf.qplc> <source.q> [-o output.xml] [-s output.scl] [--tokens] [--ast]
     std::string confFileName;
     std::string progFileName;
     std::string outputPath;
@@ -128,7 +130,10 @@ int main(int argc, char* argv[]) {
     int positionalArgs = 0;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "-o") {
+        if (arg == "--lsp") {
+            qplc::lsp::runLspServer();
+            return 0;
+        } else if (arg == "-o") {
             if (i + 1 >= argc) { std::cerr << "Error: -o requires a file path\n"; return 1; }
             outputPath = argv[++i];
         } else if (arg == "-s") {
@@ -220,7 +225,7 @@ int main(int argc, char* argv[]) {
         std::string ladderXml = generateLadderXml(*program, config);
 
         if (!outputPath.empty()) {
-            // نوشتن مستقیم در فایل (UTF-8 بایت‌به‌بایت، بدون دخالت انکودینگ شل)
+            // Write directly to file (UTF-8 byte-by-byte, shell encoding does not interfere)
             std::ofstream outFile(outputPath, std::ios::binary);
             if (!outFile) {
                 std::cerr << "Error: Cannot open output file " << outputPath << "\n";
@@ -232,8 +237,24 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         } else {
-            // خروجی XML روی stdout (فقط XML به stdout می‌رود)
+            // Output XML to stdout (only XML goes to stdout)
             std::cout << ladderXml;
+        }
+
+        // Generate SCL if requested
+        if (!sclPath.empty()) {
+            std::string sclCode = generateScl(*program, config);
+            std::ofstream sclFile(sclPath, std::ios::binary);
+            if (!sclFile) {
+                std::cerr << "Error: Cannot open SCL output file " << sclPath << "\n";
+                return 1;
+            }
+            sclFile << sclCode;
+            if (!sclFile) {
+                std::cerr << "Error: Failed writing SCL output file " << sclPath << "\n";
+                return 1;
+            }
+            std::cerr << "SCL generated successfully to " << sclPath << "!\n";
         }
 
         // Success message to stderr (doesn't pollute XML)

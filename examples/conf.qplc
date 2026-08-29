@@ -2,8 +2,17 @@
 cpu = S7-1214C
 ip = 192.168.0.1
 
+# Program constants — substituted as literals in the code
+[constants]
+MAX_TEMP = 80.0
+START_DELAY = T#2s
+MAX_COUNT = 3
+BASE_SPEED = 1000
+SCALE = 2
+DIVISOR = 4
+
 [io]
-# ورودی‌های دیجیتال
+# Digital inputs
 start_button = I0.0:BOOL
 stop_button  = I0.1:BOOL
 emergency   = I0.2:BOOL
@@ -17,8 +26,11 @@ reset_updown = I1.1:BOOL
 load_updown  = I1.2:BOOL
 enable      = I1.3:BOOL
 loop_condition = I1.4:BOOL
+running     = I1.5:BOOL
+offset      = I1.6:INT
+tick_count  = MW16:INT
 
-# خروجی‌های دیجیتال
+# Digital outputs
 motor_run = Q0.0:BOOL
 cooling_valve = Q0.1:BOOL
 timer_output = Q0.2:BOOL
@@ -29,11 +41,15 @@ finished = Q0.6:BOOL
 result = Q0.7:BOOL
 loop_output = Q1.0:BOOL
 
-# متغیرهای عددی
+# Numeric variables
 temperature = IW64:REAL
 speed = QW80:INT
 count = MW10:INT
+base_speed = IW66:INT
+temp = MW12:INT
+ratio = MW14:INT
+remainder = MW18:INT
 
-# آرایه‌ها
+# Arrays
 inputs = I0.0:BOOL[4]
 outputs = Q0.0:BOOL[4]

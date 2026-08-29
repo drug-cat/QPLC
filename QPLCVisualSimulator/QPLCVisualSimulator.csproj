@@ -5,6 +5,11 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
+    <RootNamespace>QPLCVisualSimulator</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\QPLC.Core\QPLC.Core.csproj" />
+  </ItemGroup>
 
 </Project>

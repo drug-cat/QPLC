@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using QPLC.Core;
 
 namespace QPLCVisualSimulator
 {
@@ -107,17 +108,17 @@ namespace QPLCVisualSimulator
             else
                 outputLeft = RailRightX - 40;
 
-            // ارزیابی شاخه‌ها
+            // Evaluate the branches
             var branchStates = rung.Branches.Select(b => IsBranchTrue(b)).ToList();
             bool rungTrue = branchStates.Any(b => b);
 
-            // اتصال از ریل چپ به شروع
+            // Connection from the left rail to the start
             DrawHorizontalLine(RailLeftX, centerY, startX, centerY, rungTrue);
 
-            // رسم شاخه‌ها
+            // Draw the branches
             DrawLadderBranches(rung, startX, centerY, branchStates, rungTrue, outputLeft);
 
-            // رسم خروجی
+            // Draw the output
             if (rung.Coil != null)
                 DrawCoil(rung.Coil, outputLeft, centerY, rungTrue);
             else if (rung.Timer != null)
@@ -125,7 +126,7 @@ namespace QPLCVisualSimulator
             else if (rung.Counter != null)
                 DrawCounter(rung.Counter, outputLeft, centerY, rungTrue);
 
-            // اتصال از خروجی به ریل راست
+            // Connection from the output to the right rail
             double outputRight = outputLeft + GetOutputElementWidth(rung);
             DrawHorizontalLine(outputRight, centerY, RailRightX, centerY, rungTrue);
         }
@@ -229,6 +230,72 @@ namespace QPLCVisualSimulator
         {
             Brush brush = conducting ? ActiveBrush : InactiveBrush;
 
+            // Edges: upward triangle (rising) or downward (falling)
+            if (elem.ContactType == "rising" || elem.ContactType == "falling")
+            {
+                var path = new System.Windows.Shapes.Path
+                {
+                    Stroke = brush,
+                    StrokeThickness = 2,
+                    Fill = Brushes.Transparent,
+                    Width = ContactWidth,
+                    Height = ContactHeight
+                };
+
+                if (elem.ContactType == "rising")
+                {
+                    // Upward triangle
+                    path.Data = System.Windows.Media.Geometry.Parse($"M0,{ContactHeight} L{ContactWidth/2},0 L{ContactWidth},{ContactHeight}");
+                }
+                else
+                {
+                    // Downward triangle
+                    path.Data = System.Windows.Media.Geometry.Parse($"M0,0 L{ContactWidth/2},{ContactHeight} L{ContactWidth},0");
+                }
+                Canvas.SetLeft(path, x);
+                Canvas.SetTop(path, y);
+                LadderCanvas.Children.Add(path);
+
+                // Address label
+                var label = new TextBlock { Text = elem.Address, FontSize = 9, Foreground = Brushes.Blue };
+                Canvas.SetLeft(label, x - 3);
+                Canvas.SetTop(label, y + ContactHeight + 2);
+                LadderCanvas.Children.Add(label);
+
+                // Tooltip
+                path.ToolTip = $"{elem.ContactType} Edge\nAddress: {elem.Address}\nState: {(conducting ? "Rising/Falling detected" : "Idle")}";
+
+                // Click region for toggle
+                var clickArea = new Rectangle
+                {
+                    Width = ContactWidth + 4,
+                    Height = ContactHeight + 4,
+                    Fill = Brushes.Transparent,
+                    Tag = elem
+                };
+                clickArea.MouseLeftButtonDown += (s, e) =>
+                {
+                    if (simulator != null)
+                    {
+                        var varName = elem.Address;
+                        var bools = simulator.BoolVars;
+                        if (bools.ContainsKey(varName))
+                        {
+                            bool newVal = !bools[varName];
+                            simulator.SetBool(varName, newVal);
+                            simulator.RunScan();
+                            DrawNetworks(networks);
+                        }
+                    }
+                };
+                Canvas.SetLeft(clickArea, x - 2);
+                Canvas.SetTop(clickArea, y - 2);
+                LadderCanvas.Children.Add(clickArea);
+
+                return;
+            }
+
+            // Normal contacts (NO/NC)
             var line1 = new Line { X1 = x, Y1 = y, X2 = x, Y2 = y + ContactHeight, Stroke = brush, StrokeThickness = 2 };
             var line2 = new Line { X1 = x + ContactWidth, Y1 = y, X2 = x + ContactWidth, Y2 = y + ContactHeight, Stroke = brush, StrokeThickness = 2 };
             LadderCanvas.Children.Add(line1);
@@ -240,36 +307,39 @@ namespace QPLCVisualSimulator
                 LadderCanvas.Children.Add(slash);
             }
 
-            var label = new TextBlock { Text = elem.Address, FontSize = 9, Foreground = Brushes.Blue };
-            Canvas.SetLeft(label, x - 3);
-            Canvas.SetTop(label, y + ContactHeight + 2);
-            LadderCanvas.Children.Add(label);
+            var label2 = new TextBlock { Text = elem.Address, FontSize = 9, Foreground = Brushes.Blue };
+            Canvas.SetLeft(label2, x - 3);
+            Canvas.SetTop(label2, y + ContactHeight + 2);
+            LadderCanvas.Children.Add(label2);
 
-            var clickArea = new Rectangle
+            // Tooltip
+            line1.ToolTip = $"{elem.ContactType} Contact\nAddress: {elem.Address}\nState: {(conducting ? "Conducting" : "Open")}";
+
+            var clickArea2 = new Rectangle
             {
                 Width = ContactWidth + 4,
                 Height = ContactHeight + 4,
                 Fill = Brushes.Transparent,
                 Tag = elem
             };
-            clickArea.MouseLeftButtonDown += (s, e) =>
+            clickArea2.MouseLeftButtonDown += (s, e) =>
             {
                 if (simulator != null)
                 {
                     var varName = elem.Address;
-                    var bools = simulator.GetBoolVariables();
+                    var bools = simulator.BoolVars;
                     if (bools.ContainsKey(varName))
                     {
                         bool newVal = !bools[varName];
                         simulator.SetBool(varName, newVal);
-                        simulator.RunScan();          // 🔥 اجرای خودکار اسکن
+                        simulator.RunScan();
                         DrawNetworks(networks);
                     }
                 }
             };
-            Canvas.SetLeft(clickArea, x - 2);
-            Canvas.SetTop(clickArea, y - 2);
-            LadderCanvas.Children.Add(clickArea);
+            Canvas.SetLeft(clickArea2, x - 2);
+            Canvas.SetTop(clickArea2, y - 2);
+            LadderCanvas.Children.Add(clickArea2);
         }
 
         private void DrawComparison(LadderElement elem, double x, double y, bool conducting)
@@ -288,7 +358,7 @@ namespace QPLCVisualSimulator
 
         private void DrawCoil(LadderElement elem, double x, double centerY, bool rungTrue)
         {
-            bool output = simulator != null && simulator.GetBoolVariables().TryGetValue(elem.Address, out bool val) && val;
+            bool output = simulator != null && simulator.BoolVars.TryGetValue(elem.Address, out bool val) && val;
             Brush brush = output ? ActiveBrush : InactiveBrush;
 
             string symbol = elem.ContactType == "reset" ? "(R)" : elem.ContactType == "set" ? "(S)" : "( )";
@@ -302,11 +372,13 @@ namespace QPLCVisualSimulator
             Canvas.SetLeft(coilText, x);
             Canvas.SetTop(coilText, centerY - 8);
             LadderCanvas.Children.Add(coilText);
+
+            coilText.ToolTip = $"Coil ({elem.ContactType})\nAddress: {elem.Address}\nState: {(output ? "ON" : "OFF")}";
         }
 
         private void DrawTimer(LadderElement elem, double x, double centerY, bool rungTrue)
         {
-            bool output = simulator != null && simulator.GetBoolVariables().TryGetValue(elem.Address, out bool val) && val;
+            bool output = simulator != null && simulator.BoolVars.TryGetValue(elem.Address, out bool val) && val;
             Brush brush = output ? ActiveBrush : InactiveBrush;
 
             var boxWidth = 80;
@@ -319,18 +391,28 @@ namespace QPLCVisualSimulator
 
             var title = new TextBlock { Text = elem.ContactType, FontWeight = FontWeights.Bold, FontSize = 10 };
             Canvas.SetLeft(title, x + 12);
-            Canvas.SetTop(title, boxY + 18);
+            Canvas.SetTop(title, boxY + 2);
             LadderCanvas.Children.Add(title);
+
+            // Live elapsed time (ET)
+            double elapsedMs = 0;
+            if (simulator != null)
+                elapsedMs = simulator.GetTimerElapsedMs(elem.Address);
+            TimeSpan et = TimeSpan.FromMilliseconds(elapsedMs);
+            string etStr = $"{et.Hours:D2}:{et.Minutes:D2}:{et.Seconds:D2}.{et.Milliseconds / 100:D1}";
 
             DrawPin(x, boxY + boxHeight / 2, "IN", elem.Address, brush);
             DrawPin(x + boxWidth, boxY + boxHeight / 2, "Q", elem.Address, brush);
             DrawPin(x + boxWidth / 2, boxY, "PT", elem.Source, brush);
-            DrawPin(x + boxWidth / 2, boxY + boxHeight, "ET", "", brush);
+            DrawPin(x + boxWidth / 2, boxY + boxHeight, "ET", etStr, brush);
+
+            // Tooltip with full details
+            box.ToolTip = $"{elem.ContactType} Timer\nOutput: {elem.Address}\nPT: {elem.Source}\nET: {etStr}\nState: {(output ? "Q=1" : "Q=0")}";
         }
 
         private void DrawCounter(LadderElement elem, double x, double centerY, bool rungTrue)
         {
-            bool output = simulator != null && simulator.GetBoolVariables().TryGetValue(elem.Address, out bool val) && val;
+            bool output = simulator != null && simulator.BoolVars.TryGetValue(elem.Address, out bool val) && val;
             Brush brush = output ? ActiveBrush : InactiveBrush;
 
             var boxWidth = 100;
@@ -341,9 +423,14 @@ namespace QPLCVisualSimulator
             Canvas.SetTop(box, boxY);
             LadderCanvas.Children.Add(box);
 
-            var title = new TextBlock { Text = elem.ContactType, FontWeight = FontWeights.Bold, FontSize = 10 };
+            // Live counter value
+            int count = 0;
+            if (simulator != null)
+                count = simulator.GetCounterValue(elem.Address);
+
+            var title = new TextBlock { Text = $"{elem.ContactType}  CV={count}", FontWeight = FontWeights.Bold, FontSize = 10 };
             Canvas.SetLeft(title, x + 20);
-            Canvas.SetTop(title, boxY + 25);
+            Canvas.SetTop(title, boxY + 2);
             LadderCanvas.Children.Add(title);
 
             if (elem.ContactType == "count_up")
@@ -370,6 +457,8 @@ namespace QPLCVisualSimulator
                 DrawPin(x + boxWidth, boxY + 58, "QD", elem.Address, brush);
                 DrawPin(x + boxWidth / 2, boxY + boxHeight, "PV", elem.Preset, brush);
             }
+
+            box.ToolTip = $"{elem.ContactType} Counter\nOutput: {elem.Address}\nPV: {elem.Preset}\nCV: {count}\nState: {(output ? "Q=1" : "Q=0")}";
         }
 
         private void DrawPin(double x, double y, string pinName, string value, Brush brush)
@@ -416,7 +505,7 @@ namespace QPLCVisualSimulator
             double blockX = x;
             double blockY = y;
 
-            // اگر فقط یک شاخه سری با کنتاکت‌ها باشد، دروازه AND
+            // If there is only one series branch of contacts, it is an AND gate
             if (rung.Branches.Count == 1 && rung.Branches[0].Count > 0)
             {
                 var inputs = rung.Branches[0];
@@ -430,7 +519,7 @@ namespace QPLCVisualSimulator
                 blockX += 150;
             }
 
-            // خروجی
+            // Output
             if (rung.Coil != null)
                 DrawFbdCoil(rung.Coil, blockX, blockY);
             else if (rung.Timer != null)
@@ -505,21 +594,11 @@ namespace QPLCVisualSimulator
         }
 
         // ================ Helpers ================
+        // Source of truth: query the simulator for power-flow status (including edges)
         private bool IsContactConducting(LadderElement elem)
         {
             if (simulator == null) return false;
-            if (elem.Type == "contact")
-            {
-                if (elem.ContactType == "comparison")
-                    return EvaluateComparison(elem);
-                else
-                {
-                    var bools = simulator.GetBoolVariables();
-                    bool state = bools.TryGetValue(elem.Address, out bool val) && val;
-                    return elem.ContactType == "NO" ? state : !state;
-                }
-            }
-            return false;
+            return simulator.IsContactActive(elem);
         }
 
         private bool EvaluateComparison(LadderElement elem)
@@ -541,9 +620,9 @@ namespace QPLCVisualSimulator
         private double GetNumericValue(string expr)
         {
             if (double.TryParse(expr, out double literal)) return literal;
-            var numVars = simulator.GetNumericVariables();
+            var numVars = simulator.NumVars;
             if (numVars.TryGetValue(expr, out double val)) return val;
-            var boolVars = simulator.GetBoolVariables();
+            var boolVars = simulator.BoolVars;
             if (boolVars.TryGetValue(expr, out bool b)) return b ? 1.0 : 0.0;
             return 0.0;
         }

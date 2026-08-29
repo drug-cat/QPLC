@@ -1,0 +1,53 @@
+# Dependabot configuration — keep dependencies up to date
+version: 2
+
+updates:
+  # ── GitHub Actions ──────────────────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # ── NuGet: QPLC.Core ────────────────────────────────────────────────────────
+  - package-ecosystem: "nuget"
+    directory: "/QPLC.Core"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    groups:
+      nuget-core:
+        patterns: ["*"]
+
+  # ── NuGet: QPLC.Studio ─────────────────────────────────────────────────────
+  - package-ecosystem: "nuget"
+    directory: "/QPLC.Studio"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    groups:
+      nuget-studio:
+        patterns: ["*"]
+
+  # ── NuGet: QPLCSimulator (legacy CLI) ──────────────────────────────────────
+  - package-ecosystem: "nuget"
+    directory: "/QPLCSimulator"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    groups:
+      nuget-simulator:
+        patterns: ["*"]
+
+  # ── NuGet: QPLCVisualSimulator (legacy WPF) ─────────────────────────────────
+  - package-ecosystem: "nuget"
+    directory: "/QPLCVisualSimulator"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    groups:
+      nuget-visual:
+        patterns: ["*"]

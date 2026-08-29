@@ -24,7 +24,7 @@ namespace QPLCExporter
 
             Console.WriteLine($"Found {networks.Count} networks.");
 
-            // ساخت پروژه TIA (فعلاً فقط ساخت پروژه)
+            // Build the TIA project (currently only project creation)
             TiaProjectBuilder.Build(config, networks);
         }
     }

@@ -87,11 +87,11 @@ void SemanticAnalyzer::reportUndefined(const Expr& expr, const string& name) {
 bool SemanticAnalyzer::isBoolExpr(const Expr& expr) {
     if (auto var = dynamic_cast<const VarExpr*>(&expr)) {
         if (isLocalVar(var->name)) {
-            // پارامتر تابع بی‌نوع است و در بافت بولی هم پذیرفته می‌شود؛
-            // سایر متغیرهای محلی (مثل متغیر حلقه for) عددی‌اند
+            // Function parameter is untyped and accepted in boolean context;
+            // other local variables (e.g., for-loop variable) are numeric
             return isActiveParam(var->name);
         }
-        // ثابت True/False بولی است؛ سایر ثابت‌ها عددی/زمانی
+        // Constants True/False are boolean; other constants are numeric/time
         if (isConstant(var->name)) {
             return config.constants.at(var->name) == "True";
         }
@@ -114,7 +114,7 @@ bool SemanticAnalyzer::isBoolExpr(const Expr& expr) {
                 "Variable '" + idx->name + "' is not an array"});
             return false;
         }
-        // بررسی حد آرایه اگر اندیس ثابت باشد
+        // Check array bounds if the index is a constant
         if (auto numIdx = dynamic_cast<const NumberExpr*>(idx->index.get())) {
             int index = stoi(numIdx->value);
             int len = getArrayLength(idx->name);
@@ -127,16 +127,16 @@ bool SemanticAnalyzer::isBoolExpr(const Expr& expr) {
     }
     if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
         const string canonical = builtins::normalize(call->funcName);
-        // تایمرها، شمارنده‌ها و توابع لبه مقدار بولی برمی‌گردانند
+        // Timers, counters, and edge functions return boolean
         if (builtins::isTimer(canonical) || builtins::isCounter(canonical) ||
             builtins::isEdge(canonical)) {
             return true;
         }
-        // توابع کاربر مقدار بازگشتی ندارند؛ خطا در checkExpr گزارش می‌شود
+        // User functions have no return value; the error is reported in checkExpr
         return false;
     }
     if (auto attr = dynamic_cast<const AttributeExpr*>(&expr)) {
-        // فعلاً دسترسی به عضو (مثل timer1.Q) بولی فرض می‌شود
+        // Member access (e.g., timer1.Q) is currently assumed to be boolean
         return true;
     }
     if (dynamic_cast<const BoolExpr*>(&expr)) {
@@ -148,7 +148,7 @@ bool SemanticAnalyzer::isBoolExpr(const Expr& expr) {
         }
         if (bin->op == "==" || bin->op == "!=" || bin->op == "<" ||
             bin->op == ">" || bin->op == "<=" || bin->op == ">=") {
-            // مقایسه همیشه BOOL است
+            // Comparison always yields BOOL
             return true;
         }
         return false;
@@ -158,6 +158,10 @@ bool SemanticAnalyzer::isBoolExpr(const Expr& expr) {
             return isBoolExpr(*un->operand);
         }
         return false;
+    }
+    if (auto ternary = dynamic_cast<const TernaryExpr*>(&expr)) {
+        // Boolean context: condition must be boolean, both branches must be boolean
+        return isBoolExpr(*ternary->cond) && isBoolExpr(*ternary->trueExpr) && isBoolExpr(*ternary->falseExpr);
     }
     return false;
 }
@@ -171,10 +175,10 @@ bool SemanticAnalyzer::isNumericOrTimeExpr(const Expr& expr) {
     }
     if (auto var = dynamic_cast<const VarExpr*>(&expr)) {
         if (isLocalVar(var->name)) {
-            // متغیر محلی/پارامتر عددی است
+            // Local variable/parameter is numeric
             return true;
         }
-        // هر ثابت معتبری (به‌جز True/False) در بافت عددی قابل استفاده است
+        // Any valid constant (except True/False) is usable in a numeric context
         if (isConstant(var->name)) {
             return true;
         }
@@ -208,7 +212,7 @@ bool SemanticAnalyzer::isNumericOrTimeExpr(const Expr& expr) {
         return t != "BOOL";
     }
     if (dynamic_cast<const CallExpr*>(&expr)) {
-        // تایمرها/شمارنده‌ها/لبه‌ها بولی هستند، نه عددی
+        // Timers/counters/edges are boolean, not numeric
         return false;
     }
     if (auto bin = dynamic_cast<const BinaryExpr*>(&expr)) {
@@ -217,6 +221,17 @@ bool SemanticAnalyzer::isNumericOrTimeExpr(const Expr& expr) {
             return isNumericOrTimeExpr(*bin->left) && isNumericOrTimeExpr(*bin->right);
         }
         return false;
+    }
+    if (auto ternary = dynamic_cast<const TernaryExpr*>(&expr)) {
+        // Numeric context: both branches must be numeric/time
+        return isNumericOrTimeExpr(*ternary->trueExpr) && isNumericOrTimeExpr(*ternary->falseExpr);
+    }
+    if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
+        // Math functions return numeric values
+        const string canonical = builtins::normalize(call->funcName);
+        if (builtins::isMath(canonical)) {
+            return true;
+        }
     }
     return false;
 }
@@ -267,7 +282,7 @@ void SemanticAnalyzer::checkStmt(const Stmt& stmt) {
             errors.push_back({idxAssign->line, idxAssign->column,
                 "Variable '" + idxAssign->name + "' is not an array"});
         } else {
-            // بررسی حد آرایه اگر اندیس ثابت باشد
+            // Check array bounds if the index is a constant
             if (auto numIdx = dynamic_cast<const NumberExpr*>(idxAssign->index.get())) {
                 int index = stoi(numIdx->value);
                 int len = getArrayLength(idxAssign->name);
@@ -307,14 +322,21 @@ void SemanticAnalyzer::checkStmt(const Stmt& stmt) {
                 "'continue' is only valid inside a while loop"});
         }
     }
+    else if (auto returnStmt = dynamic_cast<const ReturnStmt*>(&stmt)) {
+        checkReturnStmt(*returnStmt);
+    }
     else if (auto ifStmt = dynamic_cast<const IfStmt*>(&stmt)) {
         if (!isBoolExpr(*ifStmt->cond)) {
             errors.push_back({ifStmt->cond->line, ifStmt->cond->column,
                 "Condition must be boolean"});
         }
-        // دستورات مرکب داخل شاخه‌های if فعلاً پشتیبانی نمی‌شوند (ترکیب شرط شاخه با
-        // کنترل جریان تودرتو در کد لدر ممکن نیست) — صریحاً رد می‌شوند
+        // Compound statements inside if branches are not yet supported (combining
+        // branch condition with nested flow control in ladder code is not possible) —
+        // rejected explicitly; break/continue inside an if branch are allowed (to exit outer loops)
         auto rejectCompound = [this](const StmtPtr& s, const char* what) {
+            if (dynamic_cast<const BreakStmt*>(s.get()) || dynamic_cast<const ContinueStmt*>(s.get())) {
+                return;  // Allowed inside an if branch
+            }
             if (dynamic_cast<const IfStmt*>(s.get()) || dynamic_cast<const WhileStmt*>(s.get()) ||
                 dynamic_cast<const ForStmt*>(s.get()) || dynamic_cast<const CallStmt*>(s.get())) {
                 errors.push_back({s->line, s->column,
@@ -395,7 +417,7 @@ void SemanticAnalyzer::checkUserCall(const string& rawName, int argc, int line, 
         }
         return;
     }
-    // تابع کاربر
+    // User-defined function
     if (declaredFunctions.find(name) == declaredFunctions.end()) {
         errors.push_back({line, column, "Unknown function '" + rawName + "'"});
     } else if (functionParamCounts.count(name) &&
@@ -413,6 +435,11 @@ void SemanticAnalyzer::checkExpr(const Expr& expr) {
             errors.push_back({var->line, var->column,
                 "Variable '" + var->name + "' is not defined in conf.qplc"});
         }
+    }
+    else if (auto ternary = dynamic_cast<const TernaryExpr*>(&expr)) {
+        checkExpr(*ternary->cond);
+        checkExpr(*ternary->trueExpr);
+        checkExpr(*ternary->falseExpr);
     }
     else if (auto idx = dynamic_cast<const IndexExpr*>(&expr)) {
         if (config.io.find(idx->name) == config.io.end() && !isConstant(idx->name)) {
@@ -434,7 +461,7 @@ void SemanticAnalyzer::checkExpr(const Expr& expr) {
         const string name = builtins::normalize(call->funcName);
 
         if (builtins::isTimer(name)) {
-            // توابع تایمر: (BOOL, TIME)
+            // Timer functions: (BOOL, TIME)
             if (call->args.size() != 2) {
                 errors.push_back({call->line, call->column,
                     "Function '" + name + "' expects 2 arguments (input, time)"});
@@ -484,7 +511,7 @@ void SemanticAnalyzer::checkExpr(const Expr& expr) {
             }
         }
         else if (builtins::isEdge(name)) {
-            // توابع لبه: (BOOL) → BOOL
+            // Edge functions: (BOOL) -> BOOL
             if (call->args.size() != 1) {
                 errors.push_back({call->line, call->column,
                     "Function '" + name + "' expects exactly 1 boolean argument"});
@@ -493,17 +520,38 @@ void SemanticAnalyzer::checkExpr(const Expr& expr) {
                     "Argument of '" + name + "' must be boolean"});
             }
         }
+        else if (builtins::isMath(name)) {
+            // Math functions: validate argument count
+            int expected = builtins::mathArgCount(name);
+            if (expected >= 0 && static_cast<int>(call->args.size()) != expected) {
+                errors.push_back({call->line, call->column,
+                    "Function '" + name + "' expects " + to_string(expected) + " arguments but " + to_string(call->args.size()) + " given"});
+            } else if (expected == -1) {  // mux: k + options
+                if (call->args.size() < 2) {
+                    errors.push_back({call->line, call->column,
+                        "Function 'mux' expects at least 2 arguments (k, option0, ...)"});
+                }
+            }
+            // All arguments must be numeric/time
+            for (const auto& arg : call->args) {
+                if (!isNumericOrTimeExpr(*arg)) {
+                    errors.push_back({arg->line, arg->column,
+                        "Argument of '" + name + "' must be numeric/time"});
+                }
+                checkExpr(*arg);
+            }
+        }
         else {
             errors.push_back({call->line, call->column,
                 "Unknown function '" + call->funcName +
                 "' (user functions have no return value and cannot be used in expressions)"});
-            // بررسی آرگومان‌ها برای یافتن خطاهای داخلی
+            // Check arguments to surface nested errors
             for (const auto& arg : call->args) {
                 checkExpr(*arg);
             }
             return;
         }
-        // بررسی زیرعبارت‌های آرگومان‌ها
+        // Check sub-expressions in arguments
         for (const auto& arg : call->args) {
             checkExpr(*arg);
         }
@@ -516,7 +564,21 @@ void SemanticAnalyzer::checkExpr(const Expr& expr) {
         checkExpr(*un->operand);
     }
     else if (auto attr = dynamic_cast<const AttributeExpr*>(&expr)) {
-        // دسترسی به عضو فعلاً بررسی نمی‌شود
+        // Member access is not validated yet
+    }
+}
+
+//------------------------------------------------------------------------------
+// Return Statement
+//------------------------------------------------------------------------------
+void SemanticAnalyzer::checkReturnStmt(const ReturnStmt& stmt) {
+    // return is allowed in main and in user functions
+    if (activeFunctionParams.empty()) {
+        // In main: return behaves like EXIT
+        return;
+    }
+    if (stmt.hasValue && stmt.value) {
+        checkExpr(*stmt.value);
     }
 }
 
@@ -528,7 +590,7 @@ vector<SemanticError> SemanticAnalyzer::analyze(const Program& program) {
     declaredFunctions.clear();
     functionParamCounts.clear();
 
-    // ثبت امضای توابع (بررسی تکراری نبودن + تعداد پارامترها برای فراخوانی‌ها)
+    // Register function signatures (check for duplicates + parameter counts for call sites)
     for (const auto& func : program.functions) {
         if (declaredFunctions.count(func->name)) {
             errors.push_back({func->line, func->column,
@@ -539,7 +601,7 @@ vector<SemanticError> SemanticAnalyzer::analyze(const Program& program) {
         functionParamCounts[func->name] = static_cast<int>(func->params.size());
     }
 
-    // بررسی بدنه هر تابع با پارامترها به‌عنوان متغیر محلی بی‌نوع
+    // Analyze each function body with parameters as untyped local variables
     for (const auto& func : program.functions) {
         activeFunctionParams.clear();
         enterScope();

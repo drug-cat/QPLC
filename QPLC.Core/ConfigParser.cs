@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace QPLCVisualSimulator
+namespace QPLC.Core
 {
+    /// <summary>An IO mapping (hardware address, type, array length).</summary>
     public class IoMapping
     {
         public string Address { get; set; } = "";
@@ -11,20 +12,32 @@ namespace QPLCVisualSimulator
         public int ArrayLength { get; set; } = 1;
     }
 
+    /// <summary>Configuration of the target hardware (CPU and IP).</summary>
     public class HardwareConfig
     {
         public string Cpu { get; set; } = "";
         public string Ip { get; set; } = "";
     }
 
+    /// <summary>Complete program configuration: hardware, IO, constants, and simulator settings.</summary>
     public class Config
     {
         public HardwareConfig Hardware { get; set; } = new HardwareConfig();
         public Dictionary<string, IoMapping> Io { get; set; } = new Dictionary<string, IoMapping>();
+        public Dictionary<string, string> Constants { get; set; } = new Dictionary<string, string>();
+        public SimulatorConfig Simulator { get; set; } = new SimulatorConfig();
+    }
+
+    /// <summary>Settings for the [simulator] section (Modbus TCP and so on).</summary>
+    public class SimulatorConfig
+    {
+        public bool ModbusEnabled { get; set; } = false;
+        public int ModbusPort { get; set; } = 5020;
     }
 
     public static class ConfigParser
     {
+        /// <summary>Reads a conf.qplc file and converts it to a Config.</summary>
         public static Config Parse(string filePath)
         {
             var config = new Config();
@@ -71,7 +84,7 @@ namespace QPLCVisualSimulator
                         {
                             mapping.Type = typePart.Substring(0, bracket).Trim();
                             string lenStr = typePart.Substring(bracket + 1, closeBracket - bracket - 1);
-                            mapping.ArrayLength = int.Parse(lenStr);
+                            if (int.TryParse(lenStr, out int n)) mapping.ArrayLength = n;
                         }
                     }
                     else
@@ -80,6 +93,17 @@ namespace QPLCVisualSimulator
                     }
 
                     config.Io[key] = mapping;
+                }
+                else if (currentSection == "constants")
+                {
+                    config.Constants[key] = value;
+                }
+                else if (currentSection == "simulator")
+                {
+                    if (key == "modbus_enabled" && bool.TryParse(value, out bool me))
+                        config.Simulator.ModbusEnabled = me;
+                    else if (key == "modbus_port" && int.TryParse(value, out int mp))
+                        config.Simulator.ModbusPort = mp;
                 }
             }
 

@@ -32,8 +32,10 @@ private:
     std::unique_ptr<ForStmt> parseForStmt();
     StmtPtr parseAssignment();          // handle both simple and index assignment
     StmtPtr parseCallStmt();            // name(args) as a standalone statement
+    StmtPtr parseReturnStmt();          // return [expr]
 
     ExprPtr parseExpression();
+    ExprPtr parseTernary();             // a if cond else b
     ExprPtr parseOr();
     ExprPtr parseAnd();
     ExprPtr parseNot();

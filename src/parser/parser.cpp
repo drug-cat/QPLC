@@ -6,7 +6,7 @@ using namespace std;
 
 namespace {
 
-// گزارش خطای پارس با موقعیت توکن (main.cpp این exception را catch می‌کند)
+// Reports a parse error at the token's position (main.cpp catches this exception)
 [[noreturn]] void parseError(const Token& tok, const string& msg) {
     throw runtime_error("Parse error at line " + to_string(tok.line) +
                         ", col " + to_string(tok.column) + ": " + msg);
@@ -133,20 +133,17 @@ StmtPtr Parser::parseStatement() {
         }
         return make_unique<ContinueStmt>(kwTok.line, kwTok.column);
     }
-    // فراخوانی تابع به‌عنوان دستور: name(args)
+    // Function call as a statement: name(args)
     if (check(TokenType::IDENTIFIER) && peek(1).type == TokenType::PUNCTUATION &&
         peek(1).lexeme == "(") {
         return parseCallStmt();
     }
     if (check(TokenType::IDENTIFIER)) return parseAssignment();
-
-    if (check(TokenType::KEYWORD, "return")) {
-        parseError(current(), "'return' is not supported in QPLC");
-    }
+    if (check(TokenType::KEYWORD, "return")) return parseReturnStmt();
     parseError(current(), "expected a statement, found '" + current().lexeme + "'");
 }
 
-// name(arg1, arg2, ...) به‌عنوان یک دستور مستقل
+// name(arg1, arg2, ...) as a standalone statement
 StmtPtr Parser::parseCallStmt() {
     const Token& nameTok = expect(TokenType::IDENTIFIER);
     string name = nameTok.lexeme;
@@ -165,6 +162,20 @@ StmtPtr Parser::parseCallStmt() {
     return make_unique<CallStmt>(name, move(args), nameTok.line, nameTok.column);
 }
 
+StmtPtr Parser::parseReturnStmt() {
+    const Token& returnTok = expect(TokenType::KEYWORD, "return");
+    ExprPtr value = nullptr;
+    bool hasValue = false;
+
+    // return [expr] - if not a NEWLINE, parse the expression
+    if (!check(TokenType::NEWLINE)) {
+        value = parseExpression();
+        hasValue = true;
+    }
+    expect(TokenType::NEWLINE);
+    return make_unique<ReturnStmt>(move(value), hasValue, returnTok.line, returnTok.column);
+}
+
 unique_ptr<IfStmt> Parser::parseIfStmt() {
     const Token& ifTok = expect(TokenType::KEYWORD, "if");
     auto cond = parseExpression();
@@ -173,7 +184,7 @@ unique_ptr<IfStmt> Parser::parseIfStmt() {
 
     vector<pair<ExprPtr, vector<StmtPtr>>> elifBranches;
     while (check(TokenType::KEYWORD, "elif")) {
-        skipNewlines();  // محافظت در برابر خطوط خالی بین شاخه‌ها (لکسر آن‌ها را حذف می‌کند)
+        skipNewlines();  // Guard against blank lines between branches (lexer removes them)
         advance();
         auto elifCond = parseExpression();
         expect(TokenType::PUNCTUATION, ":");
@@ -227,7 +238,7 @@ unique_ptr<ForStmt> Parser::parseForStmt() {
         end = readInt();
         start = first;
     }
-    // آرگومان سوم range (گام) پشتیبانی نمی‌شود
+    // Third range argument (step) is not supported
     if (check(TokenType::PUNCTUATION, ",")) {
         parseError(current(), "range() with a step argument is not supported");
     }
@@ -242,7 +253,7 @@ StmtPtr Parser::parseAssignment() {
     const Token& nameTok = expect(TokenType::IDENTIFIER);
     string name = nameTok.lexeme;
 
-    // انتساب اندیس‌دار: name[index] = expr
+    // Indexed assignment: name[index] = expr
     if (check(TokenType::PUNCTUATION, "[")) {
         advance();
         auto index = parseExpression();
@@ -255,7 +266,7 @@ StmtPtr Parser::parseAssignment() {
 
     expect(TokenType::OPERATOR, "=");
     auto expr = parseExpression();
-    // دستور ساده همیشه با NEWLINE بسته می‌شود (لکسر بعد از هر خط محتوا NEWLINE صادر می‌کند)
+    // Simple statement is always terminated by NEWLINE (lexer emits NEWLINE after each content line)
     expect(TokenType::NEWLINE);
     return make_unique<AssignmentStmt>(name, move(expr), nameTok.line, nameTok.column);
 }
@@ -263,7 +274,21 @@ StmtPtr Parser::parseAssignment() {
 // ---------------- Expressions (precedence climbing) ----------------
 
 ExprPtr Parser::parseExpression() {
-    return parseOr();
+    return parseTernary();
+}
+
+ExprPtr Parser::parseTernary() {
+    auto left = parseOr();
+
+    // Python-style ternary: true_expr if cond else false_expr
+    if (check(TokenType::KEYWORD, "if")) {
+        const Token& ifTok = advance();
+        auto cond = parseOr();
+        expect(TokenType::KEYWORD, "else");
+        auto falseExpr = parseOr();
+        return make_unique<TernaryExpr>(move(cond), move(left), move(falseExpr), ifTok.line, ifTok.column);
+    }
+    return left;
 }
 
 ExprPtr Parser::parseOr() {
@@ -289,7 +314,7 @@ ExprPtr Parser::parseAnd() {
 ExprPtr Parser::parseNot() {
     if (check(TokenType::KEYWORD, "not")) {
         const Token& opTok = advance();
-        auto operand = parseNot();  // not دارای بالاترین تقدم در مقایسه با or/and است
+        auto operand = parseNot();  // not has the highest precedence over or/and
         return make_unique<UnaryExpr>("not", move(operand), opTok.line, opTok.column);
     }
     return parseComparison();
@@ -334,7 +359,7 @@ ExprPtr Parser::parseUnary() {
         bool minus = check(TokenType::OPERATOR, "-");
         const Token& opTok = advance();
         auto operand = parseUnary();
-        if (!minus) return operand;  // unary plus بی‌اثر است
+        if (!minus) return operand;  // unary plus has no effect
         return make_unique<UnaryExpr>(opTok.lexeme, move(operand), opTok.line, opTok.column);
     }
     return parsePrimary();
@@ -370,7 +395,7 @@ ExprPtr Parser::parsePrimary() {
         advance();
         ExprPtr expr = make_unique<VarExpr>(tok.lexeme, tok.line, tok.column);
 
-        // پسوند یک شناسه: فراخوانی f(...)، اندیس a[i] یا دسترسی به عضو obj.attr
+        // Identifier suffix: function call f(...), index a[i], or member access obj.attr
         while (true) {
             if (check(TokenType::PUNCTUATION, "(")) {
                 auto var = dynamic_cast<VarExpr*>(expr.get());

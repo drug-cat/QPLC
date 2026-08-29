@@ -1,0 +1,41 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+max_line_length = 100
+
+[*.{cpp,h,hpp,cc,cxx}]
+indent_size = 4
+tab_width = 4
+
+[*.{cs,csproj,sln,slnx,xml,props,targets}]
+indent_size = 4
+
+[*.{json,yml,yaml,toml}]
+indent_size = 2
+
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+max_line_length = off
+
+[*.q]
+indent_size = 4
+
+[*.{qplc,conf}]
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+
+[*.sh]
+indent_size = 4
+end_of_line = lf
+
+[*.bat]
+indent_size = 4
+end_of_line = crlf

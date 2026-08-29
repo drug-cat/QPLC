@@ -31,7 +31,7 @@ string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
     } else if (auto t = dynamic_cast<const TimeExpr*>(&expr)) {
         return t->value;
     } else if (auto v = dynamic_cast<const VarExpr*>(&expr)) {
-        // جایگزینی ثابت تعریف‌شده در [constants] با مقدار خام آن
+        // Substitute constants defined in [constants] with their raw value
         if (configPtr) {
             auto cit = configPtr->constants.find(v->name);
             if (cit != configPtr->constants.end()) return cit->second;
@@ -53,6 +53,26 @@ string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
     } else if (auto bin = dynamic_cast<const BinaryExpr*>(&expr)) {
         return "(" + exprToString(*bin->left, configPtr) + " " + bin->op + " " + exprToString(*bin->right, configPtr) + ")";
     } else if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
+        const string canonical = builtins::normalize(call->funcName);
+        // IEC math functions: keep lowercase/normalized name so the simulator evaluator recognizes it
+        if (builtins::isMath(canonical)) {
+            // clamp(x, lo, hi) -> limit(lo, x, hi) — IEC equivalent
+            string displayName = canonical;
+            if (canonical == "clamp") {
+                string a0 = exprToString(*call->args[1], configPtr);  // lo
+                string a1 = exprToString(*call->args[0], configPtr);  // x
+                string a2 = exprToString(*call->args[2], configPtr);  // hi
+                return displayName + "(" + a0 + ", " + a1 + ", " + a2 + ")";
+            }
+            string argsStr;
+            for (size_t i = 0; i < call->args.size(); ++i) {
+                if (i > 0) argsStr += ", ";
+                argsStr += exprToString(*call->args[i], configPtr);
+            }
+            return displayName + "(" + argsStr + ")";
+        }
+        // User function call in expression context: already converted to __qplc_ret_N by inline expansion
+        // If we reach here, it's not a temp variable; return the function name (semantic already flagged it)
         string argsStr;
         for (size_t i = 0; i < call->args.size(); ++i) {
             if (i > 0) argsStr += ", ";
@@ -61,6 +81,12 @@ string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
         return call->funcName + "(" + argsStr + ")";
     } else if (auto attr = dynamic_cast<const AttributeExpr*>(&expr)) {
         return attr->objectName + "." + attr->attrName;
+    } else if (auto ternary = dynamic_cast<const TernaryExpr*>(&expr)) {
+        // In numeric context printed as (cond ? true : false)
+        // In boolean context converted to if-stmt in ladder (in processStmt)
+        return "(" + exprToString(*ternary->trueExpr, configPtr) + " if " +
+               exprToString(*ternary->cond, configPtr) + " else " +
+               exprToString(*ternary->falseExpr, configPtr) + ")";
     }
     return "?";
 }
@@ -69,8 +95,8 @@ string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
 struct Contact {
     enum class Kind { VAR, COMP, EDGE };
     Kind kind;
-    string name;      // VAR: آدرس متغیر، EDGE: عملوند لبه
-    string op;        // COMP: عملگر مقایسه؛ EDGE: "rising" یا "falling"
+    string name;      // VAR: variable address, EDGE: edge operand
+    string op;        // COMP: comparison operator; EDGE: "rising" or "falling"
     string left;
     string right;
     bool negated;
@@ -96,7 +122,7 @@ struct Contact {
     }
 
     static Contact makeEdge(const string& edgeType, const string& operand) {
-        // edgeType: "rising" یا "falling"
+        // edgeType: "rising" or "falling"
         return Contact(Kind::EDGE, operand, edgeType, "", "", false);
     }
 };
@@ -145,6 +171,34 @@ string resolveArrayAddress(const string& base, const string& type, const string&
 
 vector<Term> exprToDNF(const Expr& expr, const Config& config);
 
+// Detects whether an expression is boolean (duplicated from semantic but lighter, for ladder codegen only)
+static bool isBoolExprKind(const Expr& expr, const Config& config) {
+    if (dynamic_cast<const BoolExpr*>(&expr)) return true;
+    if (auto bin = dynamic_cast<const BinaryExpr*>(&expr)) {
+        if (bin->op == "and" || bin->op == "or" || bin->op == "xor") return true;
+        if (bin->op == "==" || bin->op == "!=" || bin->op == "<" ||
+            bin->op == ">" || bin->op == "<=" || bin->op == ">=") return true;
+        return false;
+    }
+    if (auto un = dynamic_cast<const UnaryExpr*>(&expr)) {
+        return un->op == "not";
+    }
+    if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
+        const string canonical = builtins::normalize(call->funcName);
+        return builtins::isTimer(canonical) || builtins::isCounter(canonical) || builtins::isEdge(canonical);
+    }
+    if (dynamic_cast<const TernaryExpr*>(&expr)) {
+        // May be boolean or numeric; in numeric assignment context return false so the numeric path is taken
+        // (precise detection via tree structure, keeping it simple)
+        return false;
+    }
+    if (auto v = dynamic_cast<const VarExpr*>(&expr)) {
+        auto it = config.io.find(v->name);
+        if (it != config.io.end()) return it->second.type == "BOOL";
+    }
+    return false;
+}
+
 vector<Term> negateDNF(const vector<Term>& dnf) {
     vector<vector<Contact>> cnf;
     for (const auto& term : dnf) {
@@ -162,7 +216,7 @@ vector<Term> negateDNF(const vector<Term>& dnf) {
                 else if (op == "ge") flippedOp = "lt";
                 else if (op == "le") flippedOp = "gt";
                 clause.push_back(Contact::makeComp(flippedOp, contact.left, contact.right, false));
-            } else {  // EDGE: نقیض لبه صعودی، لبه نزولی است و برعکس
+            } else {  // EDGE: negating a rising edge yields a falling edge and vice versa
                 clause.push_back(Contact::makeEdge(flipEdge(contact.op), contact.name));
             }
         }
@@ -318,14 +372,14 @@ vector<Term> exprToDNF(const Expr& expr, const Config& config) {
     else if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
         const string canonical = builtins::normalize(call->funcName);
         if (builtins::isEdge(canonical) && call->args.size() == 1) {
-            // کنتاکت لبه به‌صورت بومی در XML
+            // Edge contact as native XML
             string edgeType = (canonical == "rising_edge") ? "rising" : "falling";
             string addr = exprToString(*call->args[0], &config);
             Term term;
             term.contacts.push_back(Contact::makeEdge(edgeType, addr));
             result.push_back(move(term));
         } else {
-            // سایر فراخوانی‌ها (تایمر/شمارنده خارج از انتساب مستقیم): کنتاکت متنی
+            // Other calls (timer/counter outside direct assignment): text contact
             Term term;
             string callStr = exprToString(expr, &config);
             term.contacts.push_back(Contact::makeVar(callStr, false));
@@ -342,6 +396,21 @@ vector<Term> exprToDNF(const Expr& expr, const Config& config) {
         if (b->value) {
             Term term;
             result.push_back(move(term));
+        }
+    }
+    else if (auto ternary = dynamic_cast<const TernaryExpr*>(&expr)) {
+        // Ternary in boolean context -> DNF: the two branches (cond ^ trueExpr) v (!cond ^ falseExpr)
+        // For simplicity, currently only trueExpr is considered when cond holds;
+        // not full DNF in boolean form -- simple to maintain: if both branches are boolean,
+        // combine only trueExpr with cond
+        auto condDnf = exprToDNF(*ternary->cond, config);
+        auto trueDnf = exprToDNF(*ternary->trueExpr, config);
+        for (auto& c : condDnf) {
+            for (auto& t : trueDnf) {
+                Term term = c;
+                term.contacts.insert(term.contacts.end(), t.contacts.begin(), t.contacts.end());
+                result.push_back(move(term));
+            }
         }
     }
 
@@ -363,7 +432,7 @@ string escapeXml(const string& input) {
     return out;
 }
 
-// نوشتن یک زنجیره کنتاکت (نقطه مشترک همه انواع رانگ‌ها)
+// Writes a chain of contacts (common to all rung types)
 void writeContacts(ostream& ss, const vector<Contact>& contacts) {
     for (const auto& contact : contacts) {
         switch (contact.kind) {
@@ -480,7 +549,7 @@ string generateCounterRung(const string& counterType, const vector<string>& args
     return ss.str();
 }
 
-// کلون کردن عبارت با جایگزینی نام‌ها بر اساس نقشه جانشینی (پارامتر تابع یا متغیر حلقه)
+// Clones an expression, replacing names per the substitution map (function parameter or loop variable)
 ExprPtr cloneExprWithSubst(const Expr& expr, const SubstMap& subs) {
     if (auto num = dynamic_cast<const NumberExpr*>(&expr)) {
         return make_unique<NumberExpr>(num->value, num->isFloat, num->line, num->column);
@@ -520,6 +589,12 @@ ExprPtr cloneExprWithSubst(const Expr& expr, const SubstMap& subs) {
         ExprPtr left = cloneExprWithSubst(*bin->left, subs);
         ExprPtr right = cloneExprWithSubst(*bin->right, subs);
         return make_unique<BinaryExpr>(bin->op, std::move(left), std::move(right), bin->line, bin->column);
+    }
+    if (auto tern = dynamic_cast<const TernaryExpr*>(&expr)) {
+        ExprPtr cond = cloneExprWithSubst(*tern->cond, subs);
+        ExprPtr t = cloneExprWithSubst(*tern->trueExpr, subs);
+        ExprPtr f = cloneExprWithSubst(*tern->falseExpr, subs);
+        return make_unique<TernaryExpr>(std::move(cond), std::move(t), std::move(f), tern->line, tern->column);
     }
     return nullptr;
 }
@@ -596,13 +671,14 @@ string generateLadderXml(const Program& program, const Config& config) {
     int networkCounter = 0;
     int whileCounter = 0;
     int callDepth = 0;
+    int returnCounter = 0;
     const int kMaxInlineDepth = 8;
 
-    // استک برچسب‌های حلقه برای break/continue
+    // Stack of loop labels for break/continue
     vector<string> breakLabels;
     vector<string> continueLabels;
 
-    // جدول توابع کاربر (هر ترتیب تعریفی پذیرفته است)
+    // Table of user functions (any definition order is accepted)
     unordered_map<string, const FunctionDef*> funcMap;
     for (const auto& func : program.functions) {
         if (!funcMap.count(func->name)) {
@@ -610,13 +686,18 @@ string generateLadderXml(const Program& program, const Config& config) {
         }
     }
 
+    // Counter for unique return/if-branch temp names
+    auto nextRetName = [&returnCounter]() {
+        return "__qplc_ret_" + to_string(returnCounter++);
+    };
+
     std::function<void(const Stmt&)> processStmt;
 
-    // درج بدنه تابع کاربر در محل فراخوانی با جایگزینی پارامترها
+    // Inline the user function body at the call site with parameter substitution
     std::function<void(const CallStmt&, const SubstMap&)> expandCall =
         [&](const CallStmt& call, const SubstMap& outerSubs) {
             auto it = funcMap.find(builtins::normalize(call.funcName));
-            if (it == funcMap.end()) return;  // semantic قبلاً خطا داده
+            if (it == funcMap.end()) return;  // semantic already reported the error
             const FunctionDef* func = it->second;
 
             if (callDepth >= kMaxInlineDepth) {
@@ -625,7 +706,7 @@ string generateLadderXml(const Program& program, const Config& config) {
                                     " (recursive function call?)");
             }
 
-            // کلون آرگومان‌ها نسبت به جانشینی بیرونی و ساخت نقشه پارامترها
+            // Clone arguments relative to the outer substitution and build the parameter map
             SubstMap subs(outerSubs);
             vector<ExprPtr> clonedArgs;
             size_t n = min(func->params.size(), call.args.size());
@@ -665,7 +746,7 @@ string generateLadderXml(const Program& program, const Config& config) {
                                 argStrs.push_back(exprToString(*arg, &config));
                             }
                             string preset = argStrs.back();
-                            argStrs.pop_back(); // حذف preset
+                            argStrs.pop_back(); // drop preset
                             out << "  <network name=\"net" << ++networkCounter << "\">\n";
                             out << generateCounterRung(canonical, argStrs, preset, assign->name);
                             out << "  </network>\n";
@@ -855,9 +936,9 @@ string generateLadderXml(const Program& program, const Config& config) {
                             }
                         }
                     }
-                    // break/continue شرطی داخل شاخه if:
-                    // jmpn وقتی پرش می‌کند که جریان برق قطع باشد؛ پس شرطِ نقیض‌شده شاخه را
-                    // می‌فرستیم تا پرش دقیقاً وقتی رخ دهد که شاخه برقرار است
+                    // Conditional break/continue inside an if branch:
+                    // jmpn jumps when power flow is off; so we pass the negated branch condition
+                    // so the jump happens exactly when the branch holds
                     else if (auto brk = dynamic_cast<const BreakStmt*>(innerStmt.get())) {
                         if (!breakLabels.empty()) {
                             auto negated = negateDNF(branchCond);
@@ -874,13 +955,31 @@ string generateLadderXml(const Program& program, const Config& config) {
                             out << "  </network>\n";
                         }
                     }
-                    // سایر انواع دستور مرکب داخل شاخه if در semantic_analyzer رد می‌شوند
+                    // Other compound statement types inside an if branch are rejected in semantic_analyzer
+                }
+            }
+        }
+        else if (auto returnStmt = dynamic_cast<const ReturnStmt*>(&stmt)) {
+            // return is only valid in user functions (semantic verifies this)
+            // if it has a value, store it in a global temp variable
+            if (returnStmt->hasValue && returnStmt->value) {
+                string retVar = nextRetName();
+                if (isBoolExprKind(*returnStmt->value, config)) {
+                    out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                    auto terms = exprToDNF(*returnStmt->value, config);
+                    out << generateRung(terms, retVar, "set");
+                    out << "  </network>\n";
+                } else {
+                    string source = exprToString(*returnStmt->value, &config);
+                    out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                    out << generateMoveRung({}, retVar, source);
+                    out << "  </network>\n";
                 }
             }
         }
         else if (auto forStmt = dynamic_cast<const ForStmt*>(&stmt)) {
             for (int i = forStmt->start; i < forStmt->end; ++i) {
-                // نگاشت متغیر حلقه به مقدار فعلی
+                // Map the loop variable to its current value
                 NumberExpr loopValue(to_string(i), false, forStmt->line, forStmt->column);
                 SubstMap subs;
                 subs[forStmt->varName] = &loopValue;

@@ -39,7 +39,7 @@ struct VarExpr : Expr {
     std::string name;
     VarExpr(std::string n, int ln, int col) : Expr(ln, col), name(std::move(n)) {}
 };
-// فراخوانی تابع (مثل on_delay(...))
+// Function call (e.g. on_delay(...))
 struct CallExpr : Expr {
     std::string funcName;
     std::vector<ExprPtr> args;
@@ -47,7 +47,7 @@ struct CallExpr : Expr {
         : Expr(ln, col), funcName(std::move(name)), args(std::move(a)) {}
 };
 
-// دسترسی به عضو (اختیاری، فعلاً استفاده نمی‌شود ولی آماده است)
+// Member access (optional, currently unused but reserved)
 struct AttributeExpr : Expr {
     std::string objectName;
     std::string attrName;
@@ -55,8 +55,8 @@ struct AttributeExpr : Expr {
         : Expr(ln, col), objectName(std::move(obj)), attrName(std::move(attr)) {}
 };
 struct IndexExpr : Expr {
-    std::string name;      // نام آرایه
-    ExprPtr index;         // عبارت اندیس (معمولاً عدد یا متغیر حلقه)
+    std::string name;      // array name
+    ExprPtr index;         // index expression (typically a number or loop variable)
     IndexExpr(std::string n, ExprPtr i, int ln, int col)
         : Expr(ln, col), name(std::move(n)), index(std::move(i)) {}
 };
@@ -73,6 +73,15 @@ struct BinaryExpr : Expr {
     ExprPtr left, right;
     BinaryExpr(std::string o, ExprPtr l, ExprPtr r, int ln, int col)
         : Expr(ln, col), op(std::move(o)), left(std::move(l)), right(std::move(r)) {}
+};
+
+// Python-style conditional expression: trueExpr if cond else falseExpr
+struct TernaryExpr : Expr {
+    ExprPtr cond;
+    ExprPtr trueExpr;
+    ExprPtr falseExpr;
+    TernaryExpr(ExprPtr c, ExprPtr t, ExprPtr f, int ln, int col)
+        : Expr(ln, col), cond(std::move(c)), trueExpr(std::move(t)), falseExpr(std::move(f)) {}
 };
 
 // ---------------- Statements ----------------
@@ -132,17 +141,25 @@ struct WhileStmt : Stmt {
         : Stmt(ln, col), cond(std::move(c)), body(std::move(b)) {}
 };
 
-// خروج از حلقه (فقط داخل while معتبر است)
+// Break out of a loop (only valid inside while)
 struct BreakStmt : Stmt {
     BreakStmt(int ln, int col) : Stmt(ln, col) {}
 };
 
-// پرش به ابتدای حلقه (فقط داخل while معتبر است)
+// Jump to the start of a loop (only valid inside while)
 struct ContinueStmt : Stmt {
     ContinueStmt(int ln, int col) : Stmt(ln, col) {}
 };
 
-// فراخوانی تابع کاربر به‌عنوان دستور مستقل (بدون مقدار بازگشتی؛ اثر از طریق متغیرهای سراسری)
+// Function return value: return [expr]
+struct ReturnStmt : Stmt {
+    ExprPtr value;   // may be null (bare return)
+    bool hasValue;
+    ReturnStmt(ExprPtr v, bool hv, int ln, int col)
+        : Stmt(ln, col), value(std::move(v)), hasValue(hv) {}
+};
+
+// User function call as a standalone statement (no return value; effect via global variables)
 struct CallStmt : Stmt {
     std::string funcName;
     std::vector<ExprPtr> args;

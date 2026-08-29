@@ -1,0 +1,71 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="QPLC.Studio.MainWindow"
+        Width="1280" Height="800"
+        Title="QPLC Studio — Cross-Platform Ladder IDE">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*" />
+      <ColumnDefinition Width="320" />
+    </Grid.ColumnDefinitions>
+
+    <DockPanel Grid.Row="0" Grid.ColumnSpan="2" Background="#2D2D30">
+      <Menu DockPanel.Dock="Top" Foreground="White">
+        <MenuItem Header="_File">
+          <MenuItem Header="Open _Config…" Click="OnOpenConfig" />
+          <MenuItem Header="Open _Ladder XML…" Click="OnOpenLadder" />
+          <MenuItem Header="_Quit" Click="OnQuit" />
+        </MenuItem>
+        <MenuItem Header="_Simulation">
+          <MenuItem Header="_Run" Click="OnRun" />
+          <MenuItem Header="_Step (one scan)" Click="OnStep" />
+          <MenuItem Header="_Reset" Click="OnReset" />
+          <MenuItem Header="Toggle _Modbus TCP server" Click="OnToggleModbus" />
+        </MenuItem>
+        <MenuItem Header="_Help">
+          <MenuItem Header="_About QPLC" Click="OnAbout" />
+        </MenuItem>
+      </Menu>
+      <TextBlock Name="statusBar" Foreground="LightGray" Padding="10,4" Text="Ready" />
+    </DockPanel>
+
+    <Border Grid.Row="1" Grid.Column="0" BorderBrush="#444" BorderThickness="1" Background="#FAFAFA">
+      <ScrollViewer>
+        <Canvas Name="ladderCanvas" Background="White" Width="1000" Height="2000" />
+      </ScrollViewer>
+    </Border>
+
+    <DockPanel Grid.Row="1" Grid.Column="1" Background="#1E1E1E">
+      <TextBlock DockPanel.Dock="Top" Text="Variables" Foreground="White" FontWeight="Bold" Padding="8" />
+      <ScrollViewer>
+        <ItemsControl Name="varList" Padding="6">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Grid Margin="2" ColumnDefinitions="120,80,*">
+                <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="#9CDCFE" />
+                <TextBlock Grid.Column="1" Text="{Binding Type}" Foreground="#569CD6" />
+                <TextBlock Grid.Column="2" Text="{Binding Value}" Foreground="#B5CEA8" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </DockPanel>
+
+    <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#007ACC" Padding="6">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
+        <TextBlock Grid.Column="0" Text="Scan:" Foreground="White" Margin="0,0,4,0" />
+        <TextBlock Name="scanText" Grid.Column="1" Text="0" Foreground="White" Margin="0,0,16,0" />
+        <TextBlock Grid.Column="2" Text="Time (ms):" Foreground="White" Margin="0,0,4,0" />
+        <TextBlock Name="timeText" Grid.Column="3" Text="0" Foreground="White" Margin="0,0,16,0" />
+        <TextBlock Grid.Column="5" Text="Modbus:" Foreground="White" Margin="0,0,4,0" />
+        <TextBlock Name="modbusText" Grid.Column="6" Text="off" Foreground="#FFD700" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

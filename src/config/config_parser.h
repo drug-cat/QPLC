@@ -7,7 +7,7 @@
 struct IoMapping {
     std::string address;
     std::string type;       // BOOL, INT, REAL, TIME
-    int arrayLength;        // 1 = غیر آرایه، >1 طول آرایه
+    int arrayLength;        // 1 = scalar, >1 = array length
     IoMapping() : arrayLength(1) {}
 };
 
@@ -19,7 +19,7 @@ struct HardwareConfig {
 struct Config {
     HardwareConfig hardware;
     std::unordered_map<std::string, IoMapping> io;
-    // ثابت‌های برنامه از سکشن [constants]: نام → مقدار خام (عدد/اعشاری/T#زمان)
+    // Program constants from [constants] section: name → raw value (number/float/T#time)
     std::unordered_map<std::string, std::string> constants;
 };
 

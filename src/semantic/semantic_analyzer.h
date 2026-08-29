@@ -17,6 +17,7 @@ class SemanticAnalyzer {
 public:
     SemanticAnalyzer(const Config& cfg);
     std::vector<SemanticError> analyze(const Program& program);
+    const std::vector<SemanticError>& getErrors() const { return errors; }
 
 private:
     const Config& config;
@@ -24,11 +25,11 @@ private:
     std::vector<std::set<std::string>> localVarScopes;
     int loopDepth = 0;
 
-    // امضای توابع کاربر برای اعتبارسنجی فراخوانی‌ها
+    // User-defined function signatures for validating call sites
     std::set<std::string> declaredFunctions;
     std::unordered_map<std::string, int> functionParamCounts;
 
-    // پارامترهای تابعِ در حال بررسی — بی‌نوع هستند (هم بولی هم عددی می‌پذیرند)
+    // Parameters of the function currently being analyzed — untyped (accept both bool and numeric)
     std::set<std::string> activeFunctionParams;
     bool isActiveParam(const std::string& name) const { return activeFunctionParams.count(name) > 0; }
 
@@ -42,6 +43,7 @@ private:
 
     void checkStmt(const Stmt& stmt);
     void checkExpr(const Expr& expr);
+    void checkReturnStmt(const ReturnStmt& stmt);
 
     bool isBoolExpr(const Expr& expr);
     bool isNumericOrTimeExpr(const Expr& expr);

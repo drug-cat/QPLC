@@ -8,13 +8,13 @@ namespace QPLCExporter
     {
         public static void Build(Config config, List<LadderNetwork> networks)
         {
-            // مسیر و نام پروژه
+            // Project path and name
             string projectDirectory = Path.GetFullPath(".");
             string projectName = "QPLC_Project";
 
             using (TiaPortal portal = new TiaPortal())
             {
-                // ایجاد پروژه جدید با متد صحیح
+                // Create a new project with the correct method
                 Project project = portal.Projects.Create(
                     new DirectoryInfo(projectDirectory),
                     projectName);
@@ -22,7 +22,7 @@ namespace QPLCExporter
                 Console.WriteLine($"Project '{project.Name}' created successfully.");
                 Console.WriteLine($"CPU from config: {config.Hardware.Cpu}");
 
-                // TODO: افزودن CPU، تگ‌ها و شبکه‌های Ladder نیاز به نصب Openness SW/HW دارد
+                // TODO: adding the CPU, tags, and ladder networks requires Openness SW/HW to be installed
                 Console.WriteLine("Device, tags, and ladder import not yet available (missing SW/HW Openness components).");
 
                 project.Save();
