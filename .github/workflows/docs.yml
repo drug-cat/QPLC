@@ -18,6 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,6 +36,9 @@ jobs:
       - name: Build VitePress site
         run: npm run build --prefix docs
 
+      - name: Verify build output
+        run: ls -la docs/.vitepress/dist/
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
@@ -42,9 +46,11 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
+          retention-days: 7
 
   deploy:
     needs: build
+    if: github.repository_owner == 'drug-cat'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

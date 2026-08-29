@@ -10,6 +10,7 @@ jobs:
   build-cpp-windows:
     name: C++ (Windows MSYS2)
     runs-on: windows-latest
+    timeout-minutes: 20
     defaults:
       run:
         shell: msys2 {0}
@@ -30,7 +31,10 @@ jobs:
       - name: Build
         run: |
           cmake -S . -B build -G Ninja
-          cmake --build build
+          cmake --build build --verbose
+
+      - name: Verify binary
+        run: ./build/qplc.exe --version || true
 
       - name: Run tests
         run: bash tests/run_tests.sh
@@ -40,20 +44,27 @@ jobs:
         with:
           name: qplc-windows
           path: build/qplc.exe
+          retention-days: 7
 
   build-cpp-ubuntu:
     name: C++ (Ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y g++ cmake ninja-build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake ninja-build
 
       - name: Build
         run: |
           cmake -S . -B build -G Ninja
-          cmake --build build
+          cmake --build build --verbose
+
+      - name: Verify binary
+        run: ./build/qplc --version || true
 
       - name: Run tests
         run: bash tests/run_tests.sh
@@ -63,10 +74,12 @@ jobs:
         with:
           name: qplc-linux
           path: build/qplc
+          retention-days: 7
 
   build-dotnet:
     name: .NET (Ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-cpp-ubuntu
     steps:
       - uses: actions/checkout@v4
@@ -80,19 +93,22 @@ jobs:
       - name: Make qplc executable
         run: chmod +x build/qplc
 
+      - name: Verify qplc
+        run: ./build/qplc --version || true
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
 
       - name: Build QPLC.Core
-        run: dotnet build QPLC.Core/QPLC.Core.csproj
+        run: dotnet build QPLC.Core/QPLC.Core.csproj --configuration Release
 
       - name: Build QPLCSimulator
-        run: dotnet build QPLCSimulator/QPLCSimulator.csproj
+        run: dotnet build QPLCSimulator/QPLCSimulator.csproj --configuration Release
 
       - name: Test simulator end-to-end
         run: |
           ./build/qplc examples/conf.qplc examples/main.q -o /tmp/main.xml
-          dotnet QPLCSimulator/bin/Debug/net8.0/QPLCSimulator.dll \
+          dotnet QPLCSimulator/bin/Release/net8.0/QPLCSimulator.dll \
             examples/conf.qplc /tmp/main.xml < <(printf 'set enable True\nrun\nexit\n')
