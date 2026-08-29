@@ -76,17 +76,17 @@ Open a config and a ladder XML, toggle Modbus, run/step/reset, replay trace.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Source (.q) ──► qplc (C++20) ──► output.xml (Ladder)       │
+│  Source (.q) ──► qplc (C++20) ──► output.xml (Ladder)        │
 │                                  └─► output.scl (TIA Portal) │
 └────────────┬─────────────────────────────────────────────────┘
              │
              ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  QPLC.Core (.NET 8 class library)                           │
-│  ├─ ConfigParser  (conf.qplc)                               │
-│  ├─ LadderXmlParser                                            │
-│  ├─ LadderSimulator   (timers, counters, IEC math, trace)   │
-│  └─ ModbusServer    (FC 1/2/3/5/6/15/16)                    │
+│  QPLC.Core (.NET 8 class library)                            │
+│  ├─ ConfigParser  (conf.qplc)                                │
+│  ├─ LadderXmlParser                                          │
+│  ├─ LadderSimulator   (timers, counters, IEC math, trace)    │
+│  └─ ModbusServer    (FC 1/2/3/5/6/15/16)                     │
 └────────────┬─────────────────────────────────────────────────┘
              │
    ┌─────────┴─────────┬──────────────┐
