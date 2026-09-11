@@ -29,9 +29,19 @@ private:
     std::set<std::string> declaredFunctions;
     std::unordered_map<std::string, int> functionParamCounts;
 
+    // User-defined struct/enum names
+    std::set<std::string> declaredStructs;
+    std::set<std::string> declaredEnums;
+
+    // Struct definitions (name -> field map)
+    std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> structDefs;
+
     // Parameters of the function currently being analyzed — untyped (accept both bool and numeric)
     std::set<std::string> activeFunctionParams;
     bool isActiveParam(const std::string& name) const { return activeFunctionParams.count(name) > 0; }
+
+    // Track struct type for local variables created by struct literals
+    std::unordered_map<std::string, std::string> localVarStructTypes;
 
     void enterScope();
     void exitScope();
@@ -50,4 +60,6 @@ private:
     std::string getVarType(const std::string& name) const;
     int getArrayLength(const std::string& name) const;
     std::string getVarType(const std::string& name, bool& isArray) const;
+    std::string getLocalStructType(const std::string& name) const;
+    std::string getFieldType(const std::string& structName, const std::string& fieldName) const;
 };

@@ -35,6 +35,12 @@ struct TimeExpr : Expr {
     TimeExpr(std::string v, int ln, int col) : Expr(ln, col), value(std::move(v)) {}
 };
 
+// String literal: "text"
+struct StringExpr : Expr {
+    std::string value;
+    StringExpr(std::string v, int ln, int col) : Expr(ln, col), value(std::move(v)) {}
+};
+
 struct VarExpr : Expr {
     std::string name;
     VarExpr(std::string n, int ln, int col) : Expr(ln, col), name(std::move(n)) {}
@@ -53,6 +59,38 @@ struct AttributeExpr : Expr {
     std::string attrName;
     AttributeExpr(std::string obj, std::string attr, int ln, int col)
         : Expr(ln, col), objectName(std::move(obj)), attrName(std::move(attr)) {}
+};
+
+// Dot access on struct: object.field
+struct FieldAccessExpr : Expr {
+    ExprPtr object;
+    std::string field;
+    FieldAccessExpr(ExprPtr obj, std::string f, int ln, int col)
+        : Expr(ln, col), object(std::move(obj)), field(std::move(f)) {}
+};
+
+// Struct literal: StructName { field1: expr1, field2: expr2 }
+struct StructLiteralExpr : Expr {
+    std::string structName;
+    std::vector<std::pair<std::string, ExprPtr>> fields;
+    StructLiteralExpr(std::string n, std::vector<std::pair<std::string, ExprPtr>> f, int ln, int col)
+        : Expr(ln, col), structName(std::move(n)), fields(std::move(f)) {}
+};
+
+// Match expression: match expr { case pattern: result, ... }
+struct MatchCase {
+    std::string pattern;          // enum variant name or literal
+    std::vector<std::string> vars; // extracted variables (for tuple variants)
+    ExprPtr result;
+    MatchCase(std::string p, std::vector<std::string> v, ExprPtr r)
+        : pattern(std::move(p)), vars(std::move(v)), result(std::move(r)) {}
+};
+
+struct MatchExpr : Expr {
+    ExprPtr scrutinee;
+    std::vector<MatchCase> cases;
+    MatchExpr(ExprPtr s, std::vector<MatchCase> c, int ln, int col)
+        : Expr(ln, col), scrutinee(std::move(s)), cases(std::move(c)) {}
 };
 struct IndexExpr : Expr {
     std::string name;      // array name
@@ -103,6 +141,15 @@ struct IndexAssignmentStmt : Stmt {
     ExprPtr expr;
     IndexAssignmentStmt(std::string n, ExprPtr i, ExprPtr e, int ln, int col)
         : Stmt(ln, col), name(std::move(n)), index(std::move(i)), expr(std::move(e)) {}
+};
+
+// Struct field assignment: object.field = expr
+struct FieldAssignmentStmt : Stmt {
+    ExprPtr object;
+    std::string field;
+    ExprPtr expr;
+    FieldAssignmentStmt(ExprPtr obj, std::string f, ExprPtr e, int ln, int col)
+        : Stmt(ln, col), object(std::move(obj)), field(std::move(f)), expr(std::move(e)) {}
 };
 
 struct IfStmt : Stmt {
@@ -167,6 +214,80 @@ struct CallStmt : Stmt {
         : Stmt(ln, col), funcName(std::move(name)), args(std::move(a)) {}
 };
 
+// Match statement: match expr { case pattern: body, ... }
+struct MatchStmtCase {
+    std::string pattern;
+    std::vector<std::string> vars;
+    std::vector<StmtPtr> body;
+    MatchStmtCase(std::string p, std::vector<std::string> v, std::vector<StmtPtr> b)
+        : pattern(std::move(p)), vars(std::move(v)), body(std::move(b)) {}
+};
+
+struct MatchStmt : Stmt {
+    ExprPtr scrutinee;
+    std::vector<MatchStmtCase> cases;
+    MatchStmt(ExprPtr s, std::vector<MatchStmtCase> c, int ln, int col)
+        : Stmt(ln, col), scrutinee(std::move(s)), cases(std::move(c)) {}
+};
+
+// try/except/finally statement (error handling)
+struct ExceptClause {
+    std::string typeName;   // exception type; "*" for catch-all
+    std::vector<StmtPtr> body;
+    ExceptClause(std::string t, std::vector<StmtPtr> b)
+        : typeName(std::move(t)), body(std::move(b)) {}
+};
+
+struct TryStmt : Stmt {
+    std::vector<StmtPtr> tryBlock;
+    std::vector<ExceptClause> handlers;
+    std::vector<StmtPtr> finallyBlock;
+    TryStmt(std::vector<StmtPtr> tb, std::vector<ExceptClause> h,
+            std::vector<StmtPtr> fb, int ln, int col)
+        : Stmt(ln, col), tryBlock(std::move(tb)), handlers(std::move(h)),
+          finallyBlock(std::move(fb)) {}
+};
+
+struct RaiseStmt : Stmt {
+    std::string typeName;   // exception type name
+    ExprPtr message;        // optional error message expression
+    RaiseStmt(std::string t, ExprPtr m, int ln, int col)
+        : Stmt(ln, col), typeName(std::move(t)), message(std::move(m)) {}
+};
+
+// ---------------- Struct & Enum Definitions ----------------
+
+struct FieldDef {
+    std::string name;
+    std::string typeName;  // BOOL, INT, REAL, TIME, or struct name
+    FieldDef(std::string n, std::string t) : name(std::move(n)), typeName(std::move(t)) {}
+};
+
+struct StructDef {
+    std::string name;
+    std::vector<FieldDef> fields;
+    int line;
+    int column;
+    StructDef(std::string n, std::vector<FieldDef> f, int ln, int col)
+        : name(std::move(n)), fields(std::move(f)), line(ln), column(col) {}
+};
+
+struct EnumVariant {
+    std::string name;
+    std::vector<std::string> associatedTypes;  // for tuple variants: Variant(INT, BOOL)
+    EnumVariant(std::string n, std::vector<std::string> t = {})
+        : name(std::move(n)), associatedTypes(std::move(t)) {}
+};
+
+struct EnumDef {
+    std::string name;
+    std::vector<EnumVariant> variants;
+    int line;
+    int column;
+    EnumDef(std::string n, std::vector<EnumVariant> v, int ln, int col)
+        : name(std::move(n)), variants(std::move(v)), line(ln), column(col) {}
+};
+
 // ---------------- Functions & Program ----------------
 struct FunctionDef {
     std::string name;
@@ -181,4 +302,6 @@ struct FunctionDef {
 
 struct Program {
     std::vector<std::unique_ptr<FunctionDef>> functions;
+    std::vector<std::unique_ptr<StructDef>> structs;
+    std::vector<std::unique_ptr<EnumDef>> enums;
 };

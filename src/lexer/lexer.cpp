@@ -13,7 +13,15 @@ namespace {
 const unordered_set<string> keywords = {
     "def", "if", "elif", "else", "while", "for", "in",
     "and", "or", "xor", "not", "return", "range", "True", "False",
-    "break", "continue"
+    "break", "continue",
+    // Phase 1: struct + enum
+    "struct", "enum", "match", "case", "self",
+    // Phase 2: strings + modules
+    "import", "export", "pub", "as", "None",
+    // Phase 3: error handling
+    "try", "except", "finally", "raise",
+    // Phase 4: utility
+    "print", "len", "type", "assert"
 };
 
 bool isKeyword(const string& word) {
@@ -85,6 +93,36 @@ void tokenizeLine(const string& line, int lineNum, vector<Token>& tokens, int st
             }
             string timeStr = line.substr(start, i - start);
             addToken(TokenType::TIME_LITERAL, timeStr, startCol);
+            continue;
+        }
+
+        // String literal "..." (with escaped quotes)
+        if (c == '"') {
+            size_t start = i;
+            int startCol = col;
+            i++;  // skip opening quote
+            col++;
+            string str;
+            while (i < n && line[i] != '"') {
+                if (line[i] == '\\' && i + 1 < n) {
+                    char next = line[i + 1];
+                    if (next == 'n') { str += '\n'; i += 2; col += 2; continue; }
+                    if (next == 't') { str += '\t'; i += 2; col += 2; continue; }
+                    if (next == '"') { str += '"'; i += 2; col += 2; continue; }
+                    if (next == '\\') { str += '\\'; i += 2; col += 2; continue; }
+                }
+                str += line[i];
+                i++;
+                col++;
+            }
+            if (i >= n) {
+                cerr << "Lexer error at line " << lineNum << ", col " << startCol
+                     << ": unterminated string literal\n";
+                break;
+            }
+            i++;  // skip closing quote
+            col++;
+            addToken(TokenType::STRING, str, startCol);
             continue;
         }
 
@@ -262,6 +300,7 @@ string tokenTypeToString(TokenType type) {
         case TokenType::INTEGER:      return "INTEGER";
         case TokenType::FLOAT:        return "FLOAT";
         case TokenType::TIME_LITERAL: return "TIME_LITERAL";
+        case TokenType::STRING:       return "STRING";
         case TokenType::OPERATOR:     return "OPERATOR";
         case TokenType::PUNCTUATION:  return "PUNCTUATION";
         case TokenType::INDENT:       return "INDENT";

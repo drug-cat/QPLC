@@ -48,7 +48,7 @@ fi
 
 for f in main counter_test timer_test while_test loop_test array_test \
          iec_names_test edge_test constants_test functions_test while_break_test math_test \
-         return_test ternary_test stdlib_test; do
+         return_test ternary_test stdlib_test struct_enum_test; do
     echo -n "[Compile] $f.q ... "
     if $QPLC $CONF examples/$f.q -o "$TMP/$f.xml" 2>"$TMP/err"; then
         PASS=$((PASS+1)); green "PASS"

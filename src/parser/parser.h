@@ -27,12 +27,20 @@ private:
     std::unique_ptr<FunctionDef> parseFunctionDef();
     std::vector<StmtPtr> parseBlock();
     std::vector<StmtPtr> parseStatements();
+    std::vector<StmtPtr> parseStatementListUntilDedent();  // parse until DEDENT (INDENT consumed)
     StmtPtr parseStatement();
     std::unique_ptr<IfStmt> parseIfStmt();
     std::unique_ptr<ForStmt> parseForStmt();
     StmtPtr parseAssignment();          // handle both simple and index assignment
     StmtPtr parseCallStmt();            // name(args) as a standalone statement
     StmtPtr parseReturnStmt();          // return [expr]
+
+    // Struct & Enum
+    std::unique_ptr<StructDef> parseStructDef();
+    std::unique_ptr<EnumDef> parseEnumDef();
+    StmtPtr parseMatchStmt();            // match expr: case ...
+    StmtPtr parseTryStmt();              // try/except/finally
+    StmtPtr parseRaiseStmt();            // raise ExceptionType(msg)
 
     ExprPtr parseExpression();
     ExprPtr parseTernary();             // a if cond else b
@@ -44,4 +52,5 @@ private:
     ExprPtr parseMultiplicative();
     ExprPtr parseUnary();
     ExprPtr parsePrimary();
+    ExprPtr parsePostfix(ExprPtr left);  // .field access
 };

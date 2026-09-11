@@ -85,6 +85,14 @@ void SemanticAnalyzer::reportUndefined(const Expr& expr, const string& name) {
 // Expression Type Checks
 //------------------------------------------------------------------------------
 bool SemanticAnalyzer::isBoolExpr(const Expr& expr) {
+    if (auto field = dynamic_cast<const FieldAccessExpr*>(&expr)) {
+        if (auto var = dynamic_cast<VarExpr*>(field->object.get())) {
+            string structType = getLocalStructType(var->name);
+            string fieldType = getFieldType(structType, field->field);
+            return fieldType == "BOOL";
+        }
+        return false;
+    }
     if (auto var = dynamic_cast<const VarExpr*>(&expr)) {
         if (isLocalVar(var->name)) {
             // Function parameter is untyped and accepted in boolean context;
@@ -167,6 +175,14 @@ bool SemanticAnalyzer::isBoolExpr(const Expr& expr) {
 }
 
 bool SemanticAnalyzer::isNumericOrTimeExpr(const Expr& expr) {
+    if (auto field = dynamic_cast<const FieldAccessExpr*>(&expr)) {
+        if (auto var = dynamic_cast<VarExpr*>(field->object.get())) {
+            string structType = getLocalStructType(var->name);
+            string fieldType = getFieldType(structType, field->field);
+            return fieldType != "BOOL" && !fieldType.empty();
+        }
+        return false;
+    }
     if (dynamic_cast<const NumberExpr*>(&expr)) {
         return true;
     }
@@ -236,6 +252,23 @@ bool SemanticAnalyzer::isNumericOrTimeExpr(const Expr& expr) {
     return false;
 }
 
+// Get the struct type name for a local variable (if known)
+string SemanticAnalyzer::getLocalStructType(const string& name) const {
+    auto it = localVarStructTypes.find(name);
+    if (it != localVarStructTypes.end()) return it->second;
+    return "";
+}
+
+// Get the type of a field within a struct
+string SemanticAnalyzer::getFieldType(const string& structName, const string& fieldName) const {
+    auto it = structDefs.find(structName);
+    if (it == structDefs.end()) return "";
+    for (const auto& f : it->second) {
+        if (f.first == fieldName) return f.second;
+    }
+    return "";
+}
+
 //------------------------------------------------------------------------------
 // Statement Checking
 //------------------------------------------------------------------------------
@@ -246,11 +279,19 @@ void SemanticAnalyzer::checkStmt(const Stmt& stmt) {
                 "Cannot assign to constant '" + assign->name + "'"});
             return;
         }
+        // Check if expression creates a local variable (struct literal etc.)
+        if (auto structLit = dynamic_cast<const StructLiteralExpr*>(assign->expr.get())) {
+            // Struct literal creates a new local variable; track its struct type
+            localVarStructTypes[assign->name] = structLit->structName;
+            addLocalVar(assign->name);
+            checkExpr(*structLit);
+            return;
+        }
         auto it = config.io.find(assign->name);
-        if (it == config.io.end()) {
+        if (it == config.io.end() && !isLocalVar(assign->name)) {
             errors.push_back({assign->line, assign->column,
                 "Variable '" + assign->name + "' is not defined in conf.qplc"});
-        } else {
+        } else if (it != config.io.end()) {
             string varType = it->second.type;
             if (varType == "BOOL") {
                 if (!isBoolExpr(*assign->expr)) {
@@ -266,6 +307,11 @@ void SemanticAnalyzer::checkStmt(const Stmt& stmt) {
                 }
             }
         }
+        checkExpr(*assign->expr);
+    }
+    else if (auto fieldAssign = dynamic_cast<const FieldAssignmentStmt*>(&stmt)) {
+        checkExpr(*fieldAssign->object);
+        checkExpr(*fieldAssign->expr);
     }
     else if (auto idxAssign = dynamic_cast<const IndexAssignmentStmt*>(&stmt)) {
         if (isConstant(idxAssign->name)) {
@@ -386,6 +432,35 @@ void SemanticAnalyzer::checkStmt(const Stmt& stmt) {
             checkStmt(*s);
         }
         loopDepth--;
+    }
+    else if (auto matchStmt = dynamic_cast<const MatchStmt*>(&stmt)) {
+        if (matchStmt->scrutinee) checkExpr(*matchStmt->scrutinee);
+        enterScope();
+        for (const auto& c : matchStmt->cases) {
+            for (const auto& var : c.vars) {
+                addLocalVar(var);
+            }
+            for (const auto& s : c.body) {
+                checkStmt(*s);
+            }
+        }
+        exitScope();
+    }
+    else if (auto tryStmt = dynamic_cast<const TryStmt*>(&stmt)) {
+        for (const auto& s : tryStmt->tryBlock) {
+            checkStmt(*s);
+        }
+        for (const auto& clause : tryStmt->handlers) {
+            for (const auto& s : clause.body) {
+                checkStmt(*s);
+            }
+        }
+        for (const auto& s : tryStmt->finallyBlock) {
+            checkStmt(*s);
+        }
+    }
+    else if (auto raiseStmt = dynamic_cast<const RaiseStmt*>(&stmt)) {
+        if (raiseStmt->message) checkExpr(*raiseStmt->message);
     }
 }
 
@@ -566,6 +641,41 @@ void SemanticAnalyzer::checkExpr(const Expr& expr) {
     else if (auto attr = dynamic_cast<const AttributeExpr*>(&expr)) {
         // Member access is not validated yet
     }
+    else if (auto field = dynamic_cast<const FieldAccessExpr*>(&expr)) {
+        // Field access on a variable: check if the variable has a known struct type
+        if (auto var = dynamic_cast<VarExpr*>(field->object.get())) {
+            string structType = getLocalStructType(var->name);
+            if (structType.empty()) {
+                // Not a struct-typed variable
+            } else {
+                string fieldType = getFieldType(structType, field->field);
+                if (fieldType.empty()) {
+                    errors.push_back({field->line, field->column,
+                        "Field '" + field->field + "' not found in struct '" + structType + "'"});
+                }
+            }
+        }
+        checkExpr(*field->object);
+    }
+    else if (auto lit = dynamic_cast<const StructLiteralExpr*>(&expr)) {
+        if (declaredStructs.find(lit->structName) == declaredStructs.end()) {
+            errors.push_back({lit->line, lit->column,
+                "Unknown struct '" + lit->structName + "'"});
+        }
+        for (const auto& f : lit->fields) {
+            checkExpr(*f.second);
+        }
+    }
+    else if (auto match = dynamic_cast<const MatchExpr*>(&expr)) {
+        checkExpr(*match->scrutinee);
+        for (const auto& c : match->cases) {
+            if (c.result) checkExpr(*c.result);
+        }
+    }
+    else if (auto str = dynamic_cast<const StringExpr*>(&expr)) {
+        // String literals are valid anywhere; no validation needed
+        (void)str;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -589,6 +699,34 @@ vector<SemanticError> SemanticAnalyzer::analyze(const Program& program) {
     errors.clear();
     declaredFunctions.clear();
     functionParamCounts.clear();
+    declaredStructs.clear();
+    declaredEnums.clear();
+
+    // Register struct definitions (check for duplicates)
+    for (const auto& s : program.structs) {
+        if (declaredStructs.count(s->name)) {
+            errors.push_back({s->line, s->column,
+                "Duplicate struct definition '" + s->name + "'"});
+            continue;
+        }
+        declaredStructs.insert(s->name);
+        // Store field definitions for type checking
+        vector<pair<string, string>> fields;
+        for (const auto& f : s->fields) {
+            fields.push_back({f.name, f.typeName});
+        }
+        structDefs[s->name] = fields;
+    }
+
+    // Register enum definitions (check for duplicates)
+    for (const auto& e : program.enums) {
+        if (declaredEnums.count(e->name)) {
+            errors.push_back({e->line, e->column,
+                "Duplicate enum definition '" + e->name + "'"});
+            continue;
+        }
+        declaredEnums.insert(e->name);
+    }
 
     // Register function signatures (check for duplicates + parameter counts for call sites)
     for (const auto& func : program.functions) {

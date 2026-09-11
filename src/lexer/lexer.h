@@ -9,6 +9,7 @@ enum class TokenType {
     INTEGER,
     FLOAT,
     TIME_LITERAL,
+    STRING,
     OPERATOR,
     PUNCTUATION,
     INDENT,

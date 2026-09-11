@@ -64,13 +64,235 @@ unique_ptr<Program> Parser::parseProgram() {
     auto program = make_unique<Program>();
     skipNewlines();
     while (!check(TokenType::END_OF_FILE)) {
-        if (!check(TokenType::KEYWORD, "def")) {
-            parseError(current(), "expected 'def' at top level, found '" + current().lexeme + "'");
+        if (check(TokenType::KEYWORD, "struct")) {
+            program->structs.push_back(parseStructDef());
+        } else if (check(TokenType::KEYWORD, "enum")) {
+            program->enums.push_back(parseEnumDef());
+        } else if (check(TokenType::KEYWORD, "def")) {
+            program->functions.push_back(parseFunctionDef());
+        } else {
+            parseError(current(), "expected 'def', 'struct', or 'enum' at top level, found '" + current().lexeme + "'");
         }
-        program->functions.push_back(parseFunctionDef());
         skipNewlines();
     }
     return program;
+}
+
+// ---------------- Struct Definition ----------------
+// struct Name:
+//     field_name TYPE
+//     field_name TYPE
+unique_ptr<StructDef> Parser::parseStructDef() {
+    const Token& structTok = expect(TokenType::KEYWORD, "struct");
+    const Token& nameTok = expect(TokenType::IDENTIFIER);
+    expect(TokenType::PUNCTUATION, ":");
+
+    vector<FieldDef> fields;
+    skipNewlines();
+
+    // Consume INDENT (the struct body)
+    if (!check(TokenType::INDENT)) {
+        parseError(current(), "expected indented block after 'struct'");
+    }
+    advance();  // consume INDENT
+
+    while (!check(TokenType::DEDENT) && !check(TokenType::END_OF_FILE)) {
+        if (!check(TokenType::IDENTIFIER)) {
+            parseError(current(), "expected field name in struct");
+        }
+        string fieldName = advance().lexeme;
+        expect(TokenType::PUNCTUATION, ":");
+        string typeName = advance().lexeme;  // TYPE name
+        fields.push_back(FieldDef(fieldName, typeName));
+        skipNewlines();
+    }
+
+    expect(TokenType::DEDENT);
+    return make_unique<StructDef>(nameTok.lexeme, move(fields),
+                                  structTok.line, structTok.column);
+}
+
+// ---------------- Enum Definition ----------------
+// enum Name:
+//     Variant
+//     Variant(TYPE, TYPE)
+//     Variant
+unique_ptr<EnumDef> Parser::parseEnumDef() {
+    const Token& enumTok = expect(TokenType::KEYWORD, "enum");
+    const Token& nameTok = expect(TokenType::IDENTIFIER);
+    expect(TokenType::PUNCTUATION, ":");
+
+    vector<EnumVariant> variants;
+    skipNewlines();
+
+    // Consume INDENT (the enum body)
+    if (!check(TokenType::INDENT)) {
+        parseError(current(), "expected indented block after 'enum'");
+    }
+    advance();  // consume INDENT
+
+    while (!check(TokenType::DEDENT) && !check(TokenType::END_OF_FILE)) {
+        if (!check(TokenType::IDENTIFIER)) {
+            parseError(current(), "expected variant name in enum");
+        }
+        string varName = advance().lexeme;
+        vector<string> assocTypes;
+
+        // Check for tuple variant: Variant(TYPE, TYPE)
+        if (check(TokenType::PUNCTUATION, "(")) {
+            advance();  // consume (
+            while (!check(TokenType::PUNCTUATION, ")")) {
+                string t = advance().lexeme;
+                assocTypes.push_back(t);
+                if (check(TokenType::PUNCTUATION, ",")) advance();
+            }
+            expect(TokenType::PUNCTUATION, ")");
+        }
+
+        variants.push_back(EnumVariant(varName, move(assocTypes)));
+        skipNewlines();
+    }
+
+    expect(TokenType::DEDENT);
+    return make_unique<EnumDef>(nameTok.lexeme, move(variants),
+                                enumTok.line, enumTok.column);
+}
+
+// ---------------- Match Statement ----------------
+// match expr:
+//     case Pattern: <statements>
+//     case Pattern2: <statements>
+StmtPtr Parser::parseMatchStmt() {
+    const Token& matchTok = expect(TokenType::KEYWORD, "match");
+    auto scrutinee = parseExpression();
+    expect(TokenType::PUNCTUATION, ":");
+
+    // Parse cases: each is "case Pattern:" followed by indented body
+    vector<MatchStmtCase> cases;
+    skipNewlines();
+
+    // Consume INDENT (the match body)
+    if (!check(TokenType::INDENT)) {
+        parseError(current(), "expected indented block after 'match'");
+    }
+    advance();  // consume INDENT
+
+    while (!check(TokenType::DEDENT) && !check(TokenType::END_OF_FILE)) {
+        if (!check(TokenType::KEYWORD, "case")) {
+            parseError(current(), "expected 'case' in match statement");
+        }
+        advance();  // consume 'case'
+
+        // Pattern may have associated variables: Pattern(a, b)
+        string pattern = expect(TokenType::IDENTIFIER).lexeme;
+        vector<string> vars;
+        if (check(TokenType::PUNCTUATION, "(")) {
+            advance();
+            while (!check(TokenType::PUNCTUATION, ")")) {
+                if (check(TokenType::IDENTIFIER)) {
+                    vars.push_back(advance().lexeme);
+                } else {
+                    advance();  // skip non-identifier tokens (types etc.)
+                }
+                if (check(TokenType::PUNCTUATION, ",")) advance();
+            }
+            expect(TokenType::PUNCTUATION, ")");
+        }
+        expect(TokenType::PUNCTUATION, ":");
+
+        vector<StmtPtr> body;
+        skipNewlines();
+        if (!check(TokenType::INDENT)) {
+            parseError(current(), "expected indented body for 'case'");
+        }
+        advance();  // consume INDENT
+        body = parseStatementListUntilDedent();
+        cases.emplace_back(pattern, move(vars), move(body));
+        skipNewlines();
+    }
+
+    expect(TokenType::DEDENT);
+    return make_unique<MatchStmt>(move(scrutinee), move(cases),
+                                  matchTok.line, matchTok.column);
+}
+
+// Helper: parse statements until DEDENT (assumes INDENT already consumed)
+vector<StmtPtr> Parser::parseStatementListUntilDedent() {
+    vector<StmtPtr> stmts;
+    while (!check(TokenType::DEDENT) && !check(TokenType::END_OF_FILE)) {
+        stmts.push_back(parseStatement());
+    }
+    expect(TokenType::DEDENT);
+    return stmts;
+}
+
+// ---------------- Try/Except/Finally ----------------
+// try:
+//     <statements>
+// except ExceptionType:
+//     <handler>
+// except:
+//     <catch-all>
+// finally:
+//     <cleanup>
+StmtPtr Parser::parseTryStmt() {
+    const Token& tryTok = expect(TokenType::KEYWORD, "try");
+    expect(TokenType::PUNCTUATION, ":");
+
+    vector<StmtPtr> tryBlock;
+    skipNewlines();
+    if (!check(TokenType::INDENT)) parseError(current(), "expected indented block after 'try'");
+    advance();  // INDENT
+    tryBlock = parseStatementListUntilDedent();
+
+    vector<ExceptClause> handlers;
+    vector<StmtPtr> finallyBlock;
+
+    skipNewlines();
+    while (check(TokenType::KEYWORD, "except")) {
+        advance();  // 'except'
+        string typeName = "*";
+        if (check(TokenType::IDENTIFIER)) {
+            typeName = advance().lexeme;
+        } else if (check(TokenType::PUNCTUATION, ":") == false) {
+            parseError(current(), "expected exception type or ':' after 'except'");
+        }
+        expect(TokenType::PUNCTUATION, ":");
+        skipNewlines();
+        if (!check(TokenType::INDENT)) parseError(current(), "expected indented block after 'except'");
+        advance();  // INDENT
+        auto body = parseStatementListUntilDedent();
+        handlers.emplace_back(typeName, move(body));
+        skipNewlines();
+    }
+
+    if (check(TokenType::KEYWORD, "finally")) {
+        advance();  // 'finally'
+        expect(TokenType::PUNCTUATION, ":");
+        skipNewlines();
+        if (!check(TokenType::INDENT)) parseError(current(), "expected indented block after 'finally'");
+        advance();  // INDENT
+        finallyBlock = parseStatementListUntilDedent();
+    }
+
+    return make_unique<TryStmt>(move(tryBlock), move(handlers), move(finallyBlock),
+                                tryTok.line, tryTok.column);
+}
+
+// raise ExceptionType("message")
+StmtPtr Parser::parseRaiseStmt() {
+    const Token& raiseTok = expect(TokenType::KEYWORD, "raise");
+    string typeName = "*";
+    if (check(TokenType::IDENTIFIER)) {
+        typeName = advance().lexeme;
+    }
+    ExprPtr message = nullptr;
+    if (!check(TokenType::NEWLINE) && !check(TokenType::DEDENT)) {
+        message = parseExpression();
+    }
+    expect(TokenType::NEWLINE);
+    return make_unique<RaiseStmt>(typeName, move(message),
+                                  raiseTok.line, raiseTok.column);
 }
 
 unique_ptr<FunctionDef> Parser::parseFunctionDef() {
@@ -125,6 +347,7 @@ StmtPtr Parser::parseStatement() {
     if (check(TokenType::KEYWORD, "if")) return parseIfStmt();
     if (check(TokenType::KEYWORD, "while")) return parseWhileStmt();
     if (check(TokenType::KEYWORD, "for")) return parseForStmt();
+    if (check(TokenType::KEYWORD, "match")) return parseMatchStmt();
     if (check(TokenType::KEYWORD, "break") || check(TokenType::KEYWORD, "continue")) {
         const Token& kwTok = advance();
         expect(TokenType::NEWLINE);
@@ -133,6 +356,8 @@ StmtPtr Parser::parseStatement() {
         }
         return make_unique<ContinueStmt>(kwTok.line, kwTok.column);
     }
+    if (check(TokenType::KEYWORD, "try")) return parseTryStmt();
+    if (check(TokenType::KEYWORD, "raise")) return parseRaiseStmt();
     // Function call as a statement: name(args)
     if (check(TokenType::IDENTIFIER) && peek(1).type == TokenType::PUNCTUATION &&
         peek(1).lexeme == "(") {
@@ -253,21 +478,43 @@ StmtPtr Parser::parseAssignment() {
     const Token& nameTok = expect(TokenType::IDENTIFIER);
     string name = nameTok.lexeme;
 
-    // Indexed assignment: name[index] = expr
-    if (check(TokenType::PUNCTUATION, "[")) {
-        advance();
-        auto index = parseExpression();
-        expect(TokenType::PUNCTUATION, "]");
-        expect(TokenType::OPERATOR, "=");
-        auto expr = parseExpression();
-        return make_unique<IndexAssignmentStmt>(name, move(index), move(expr),
-                                                nameTok.line, nameTok.column);
+    // Build up the LHS expression (supports name.field, name[idx], name.field.field)
+    ExprPtr lhs = make_unique<VarExpr>(name, nameTok.line, nameTok.column);
+
+    // Chained .field and [index] on the LHS
+    while (true) {
+        if (check(TokenType::PUNCTUATION, ".")) {
+            advance();
+            const Token& fieldTok = expect(TokenType::IDENTIFIER);
+            lhs = make_unique<FieldAccessExpr>(move(lhs), fieldTok.lexeme, nameTok.line, nameTok.column);
+        }
+        else if (check(TokenType::PUNCTUATION, "[")) {
+            advance();
+            auto index = parseExpression();
+            expect(TokenType::PUNCTUATION, "]");
+            if (auto var = dynamic_cast<VarExpr*>(lhs.get())) {
+                lhs = make_unique<IndexExpr>(var->name, move(index), nameTok.line, nameTok.column);
+            } else {
+                parseError(current(), "indexing is only supported on variables");
+            }
+        }
+        else {
+            break;
+        }
     }
 
     expect(TokenType::OPERATOR, "=");
     auto expr = parseExpression();
-    // Simple statement is always terminated by NEWLINE (lexer emits NEWLINE after each content line)
-    expect(TokenType::NEWLINE);
+
+    // Determine assignment kind: simple, index, or field
+    if (auto fieldAccess = dynamic_cast<FieldAccessExpr*>(lhs.get())) {
+        return make_unique<FieldAssignmentStmt>(move(fieldAccess->object), fieldAccess->field, move(expr),
+                                               nameTok.line, nameTok.column);
+    }
+    if (auto indexExpr = dynamic_cast<IndexExpr*>(lhs.get())) {
+        return make_unique<IndexAssignmentStmt>(indexExpr->name, move(indexExpr->index), move(expr),
+                                                nameTok.line, nameTok.column);
+    }
     return make_unique<AssignmentStmt>(name, move(expr), nameTok.line, nameTok.column);
 }
 
@@ -380,6 +627,15 @@ ExprPtr Parser::parsePrimary() {
         advance();
         return make_unique<TimeExpr>(tok.lexeme, tok.line, tok.column);
     }
+    if (check(TokenType::STRING)) {
+        advance();
+        return make_unique<StringExpr>(tok.lexeme, tok.line, tok.column);
+    }
+    if (check(TokenType::KEYWORD, "None")) {
+        advance();
+        // None is represented as a numeric 0 placeholder for now
+        return make_unique<NumberExpr>("0", false, tok.line, tok.column);
+    }
     if (check(TokenType::KEYWORD, "True") || check(TokenType::KEYWORD, "False")) {
         bool value = tok.lexeme == "True";
         advance();
@@ -401,16 +657,33 @@ ExprPtr Parser::parsePrimary() {
                 auto var = dynamic_cast<VarExpr*>(expr.get());
                 if (!var) parseError(current(), "only named functions can be called");
                 advance();
-                vector<ExprPtr> args;
-                if (!check(TokenType::PUNCTUATION, ")")) {
-                    args.push_back(parseExpression());
-                    while (check(TokenType::PUNCTUATION, ",")) {
-                        advance();
-                        args.push_back(parseExpression());
+
+                // Peek ahead to check for keyword args: field=value (struct literal)
+                if (check(TokenType::IDENTIFIER) && peek(1).type == TokenType::OPERATOR &&
+                    peek(1).lexeme == "=") {
+                    vector<pair<string, ExprPtr>> fields;
+                    while (!check(TokenType::PUNCTUATION, ")") && !check(TokenType::END_OF_FILE)) {
+                        string fieldName = expect(TokenType::IDENTIFIER).lexeme;
+                        expect(TokenType::OPERATOR, "=");
+                        auto fieldExpr = parseExpression();
+                        fields.push_back({fieldName, move(fieldExpr)});
+                        if (check(TokenType::PUNCTUATION, ",")) advance();
                     }
+                    expect(TokenType::PUNCTUATION, ")");
+                    expr = make_unique<StructLiteralExpr>(var->name, move(fields), tok.line, tok.column);
+                } else {
+                    // Regular function call: f(arg1, arg2, ...)
+                    vector<ExprPtr> args;
+                    if (!check(TokenType::PUNCTUATION, ")")) {
+                        args.push_back(parseExpression());
+                        while (check(TokenType::PUNCTUATION, ",")) {
+                            advance();
+                            args.push_back(parseExpression());
+                        }
+                    }
+                    expect(TokenType::PUNCTUATION, ")");
+                    expr = make_unique<CallExpr>(var->name, move(args), tok.line, tok.column);
                 }
-                expect(TokenType::PUNCTUATION, ")");
-                expr = make_unique<CallExpr>(var->name, move(args), tok.line, tok.column);
             }
             else if (check(TokenType::PUNCTUATION, "[")) {
                 if (!dynamic_cast<VarExpr*>(expr.get()))
@@ -422,12 +695,10 @@ ExprPtr Parser::parsePrimary() {
                 expr = make_unique<IndexExpr>(arrayName, move(index), tok.line, tok.column);
             }
             else if (check(TokenType::PUNCTUATION, ".")) {
-                if (!dynamic_cast<VarExpr*>(expr.get()))
-                    parseError(current(), "attribute access is only supported on variables");
+                // .field access (supports chaining)
                 advance();
                 const Token& attrTok = expect(TokenType::IDENTIFIER);
-                string objectName = dynamic_cast<VarExpr*>(expr.get())->name;
-                expr = make_unique<AttributeExpr>(objectName, attrTok.lexeme,
+                expr = make_unique<FieldAccessExpr>(move(expr), attrTok.lexeme,
                                                   tok.line, tok.column);
             }
             else {
