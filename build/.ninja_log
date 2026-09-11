@@ -66,3 +66,5 @@
 449	24090	8108296671593578	CMakeFiles/qplc.dir/src/codegen/scl_generator.cpp.obj	432b780a6e8916df
 423	28158	8108296671283269	CMakeFiles/qplc.dir/src/codegen/ladder_generator.cpp.obj	88112573395ec1b8
 28158	30132	8108296948640104	qplc.exe	b49582d140c816f1
+28	5704	8108324470899251	CMakeFiles/qplc.dir/src/lexer/lexer.cpp.obj	c4d498dbe00a71ad
+5705	6775	8108324527678641	qplc.exe	b49582d140c816f1
