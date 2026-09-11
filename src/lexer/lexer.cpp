@@ -19,9 +19,7 @@ const unordered_set<string> keywords = {
     // Phase 2: strings + modules
     "import", "export", "pub", "as", "None",
     // Phase 3: error handling
-    "try", "except", "finally", "raise",
-    // Phase 4: utility (function-style builtins, not keywords)
-    "len", "type"
+    "try", "except", "finally", "raise"
 };
 
 bool isKeyword(const string& word) {
