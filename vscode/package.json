@@ -1,0 +1,46 @@
+{
+  "name": "qplc",
+  "displayName": "QPLC Language Support",
+  "description": "Ladder Logic DSL for Siemens S7-1200 PLCs — diagnostics + Ladder + SCL export",
+  "version": "0.2.0",
+  "publisher": "qplc",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "qplc",
+        "aliases": ["QPLC", "qplc"],
+        "extensions": [".q"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "qplc",
+        "scopeName": "source.qplc",
+        "path": "./syntaxes/qplc.tmGrammar.json"
+      }
+    ],
+    "configuration": {
+      "title": "QPLC",
+      "properties": {
+        "qplc.compilerPath": {
+          "type": "string",
+          "default": "qplc",
+          "description": "Path to the qplc executable (used by LSP and Tasks)."
+        },
+        "qplc.configPath": {
+          "type": "string",
+          "default": "examples/conf.qplc",
+          "description": "Path to the hardware config (.qplc)."
+        }
+      }
+    }
+  }
+}

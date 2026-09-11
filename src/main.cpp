@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <set>
 
 #include "lexer/lexer.h"
 #include "parser/parser.h"
@@ -11,6 +12,53 @@
 #include "codegen/ladder_generator.h"
 #include "codegen/scl_generator.h"
 #include "lsp/lsp_server.h"
+
+// ------------------- Module import resolution -------------------
+
+// Resolve import path relative to the source file directory
+static std::string resolveImportPath(const std::string& sourcePath, const std::string& importPath) {
+    size_t lastSep = sourcePath.find_last_of("/\\");
+    if (lastSep == std::string::npos) return importPath;
+    return sourcePath.substr(0, lastSep + 1) + importPath;
+}
+
+// Merge imported module's definitions into the main program
+static void mergeImportedProgram(Program& mainProg, Program& importedProg, const std::string& moduleName) {
+    for (auto& func : importedProg.functions) {
+        func->module = moduleName;
+        mainProg.functions.push_back(std::move(func));
+    }
+    for (auto& s : importedProg.structs) {
+        mainProg.structs.push_back(std::move(s));
+    }
+    for (auto& e : importedProg.enums) {
+        mainProg.enums.push_back(std::move(e));
+    }
+}
+
+// Load and merge a single import; returns true on success
+static bool resolveImport(Program& mainProg, const ImportStmt& imp,
+                          const std::string& sourcePath, std::set<std::string>& loadedModules) {
+    if (loadedModules.count(imp.path)) return true;  // already loaded
+    std::string resolvedPath = resolveImportPath(sourcePath, imp.path);
+    std::ifstream file(resolvedPath);
+    if (!file.is_open()) {
+        std::cerr << "Error: Cannot open imported module '" << imp.path << "'\n";
+        return false;
+    }
+    std::string source((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    auto tokens = tokenize(source);
+    Parser subParser(tokens);
+    auto importedProg = subParser.parseProgram();
+    std::string alias = imp.alias.empty() ? imp.path : imp.alias;
+    loadedModules.insert(imp.path);
+    // Recursively resolve nested imports
+    for (const auto& nested : importedProg->imports) {
+        if (!resolveImport(mainProg, nested, resolvedPath, loadedModules)) return false;
+    }
+    mergeImportedProgram(mainProg, *importedProg, alias);
+    return true;
+}
 
 // ------------------- Debug dumps (--tokens / --ast) -------------------
 
@@ -203,6 +251,16 @@ int main(int argc, char* argv[]) {
         // Parse
         Parser parser(tokens);
         auto program = parser.parseProgram();
+
+        // Resolve module imports (merge definitions from imported files)
+        if (!program->imports.empty()) {
+            std::set<std::string> loadedModules;
+            for (const auto& imp : program->imports) {
+                if (!resolveImport(*program, imp, progFileName, loadedModules)) {
+                    return 1;
+                }
+            }
+        }
 
         if (dumpAst) {
             printProgram(*program);

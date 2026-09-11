@@ -295,13 +295,26 @@ struct FunctionDef {
     std::vector<StmtPtr> body;
     int line;
     int column;
+    // Module/namespace the function belongs to ("" for the main module)
+    std::string module;
 
     FunctionDef(std::string n, std::vector<std::string> p, std::vector<StmtPtr> b, int ln, int col)
         : name(std::move(n)), params(std::move(p)), body(std::move(b)), line(ln), column(col) {}
+};
+
+// Module import: import "path.q"  |  import "module_name"
+struct ImportStmt {
+    std::string path;       // file path or module name
+    std::string alias;      // optional: import "foo.q" as foo
+    int line;
+    int column;
+    ImportStmt(std::string p, std::string a, int ln, int col)
+        : path(std::move(p)), alias(std::move(a)), line(ln), column(col) {}
 };
 
 struct Program {
     std::vector<std::unique_ptr<FunctionDef>> functions;
     std::vector<std::unique_ptr<StructDef>> structs;
     std::vector<std::unique_ptr<EnumDef>> enums;
+    std::vector<ImportStmt> imports;
 };

@@ -1,3 +1,7 @@
 E:/QPLC/build/CMakeFiles/qplc.dir
 E:/QPLC/build/CMakeFiles/edit_cache.dir
 E:/QPLC/build/CMakeFiles/rebuild_cache.dir
+E:/QPLC/build/CMakeFiles/list_install_components.dir
+E:/QPLC/build/CMakeFiles/install.dir
+E:/QPLC/build/CMakeFiles/install/local.dir
+E:/QPLC/build/CMakeFiles/install/strip.dir

@@ -492,13 +492,18 @@ void SemanticAnalyzer::checkUserCall(const string& rawName, int argc, int line, 
         }
         return;
     }
-    // User-defined function
-    if (declaredFunctions.find(name) == declaredFunctions.end()) {
+    // User-defined function (strip module prefix: "utils.add" -> "add")
+    string plainName = name;
+    size_t dotPos = plainName.rfind('.');
+    if (dotPos != string::npos) {
+        plainName = plainName.substr(dotPos + 1);
+    }
+    if (declaredFunctions.find(plainName) == declaredFunctions.end()) {
         errors.push_back({line, column, "Unknown function '" + rawName + "'"});
-    } else if (functionParamCounts.count(name) &&
-               functionParamCounts.at(name) != argc) {
+    } else if (functionParamCounts.count(plainName) &&
+               functionParamCounts.at(plainName) != argc) {
         errors.push_back({line, column,
-            "Function '" + name + "' expects " + to_string(functionParamCounts.at(name)) +
+            "Function '" + plainName + "' expects " + to_string(functionParamCounts.at(plainName)) +
             " arguments but " + to_string(argc) + " given"});
     }
 }

@@ -70,8 +70,22 @@ unique_ptr<Program> Parser::parseProgram() {
             program->enums.push_back(parseEnumDef());
         } else if (check(TokenType::KEYWORD, "def")) {
             program->functions.push_back(parseFunctionDef());
+        } else if (check(TokenType::KEYWORD, "import")) {
+            // import "path.q" [as alias]
+            const Token& importTok = advance();
+            if (!check(TokenType::STRING)) {
+                parseError(current(), "expected module path as a string after 'import'");
+            }
+            string path = advance().lexeme;
+            string alias;
+            if (check(TokenType::KEYWORD, "as")) {
+                advance();
+                alias = expect(TokenType::IDENTIFIER).lexeme;
+            }
+            expect(TokenType::NEWLINE);
+            program->imports.push_back(ImportStmt(path, alias, importTok.line, importTok.column));
         } else {
-            parseError(current(), "expected 'def', 'struct', or 'enum' at top level, found '" + current().lexeme + "'");
+            parseError(current(), "expected 'def', 'struct', 'enum', or 'import' at top level, found '" + current().lexeme + "'");
         }
         skipNewlines();
     }
@@ -358,20 +372,37 @@ StmtPtr Parser::parseStatement() {
     }
     if (check(TokenType::KEYWORD, "try")) return parseTryStmt();
     if (check(TokenType::KEYWORD, "raise")) return parseRaiseStmt();
-    // Function call as a statement: name(args)
+    // Function call as a statement: name(args) or module.func(args)
     if (check(TokenType::IDENTIFIER) && peek(1).type == TokenType::PUNCTUATION &&
         peek(1).lexeme == "(") {
         return parseCallStmt();
+    }
+    // namespaced call: module.func(args)
+    if (check(TokenType::IDENTIFIER) && peek(1).type == TokenType::PUNCTUATION &&
+        peek(1).lexeme == "." && peek(2).type == TokenType::IDENTIFIER &&
+        peek(3).type == TokenType::PUNCTUATION && peek(3).lexeme == "(") {
+        return parseCallStmt();
+    }
+    // field assignment: obj.field = expr
+    if (check(TokenType::IDENTIFIER) && peek(1).type == TokenType::PUNCTUATION &&
+        peek(1).lexeme == "." && peek(2).type == TokenType::IDENTIFIER) {
+        return parseAssignment();
     }
     if (check(TokenType::IDENTIFIER)) return parseAssignment();
     if (check(TokenType::KEYWORD, "return")) return parseReturnStmt();
     parseError(current(), "expected a statement, found '" + current().lexeme + "'");
 }
 
-// name(arg1, arg2, ...) as a standalone statement
+// name(arg1, arg2, ...) or module.func(arg1, ...) as a standalone statement
 StmtPtr Parser::parseCallStmt() {
-    const Token& nameTok = expect(TokenType::IDENTIFIER);
-    string name = nameTok.lexeme;
+    const Token& nameTok = current();
+    string name = advance().lexeme;
+
+    // Handle dotted names: module.func
+    while (check(TokenType::PUNCTUATION, ".")) {
+        advance();  // consume '.'
+        name += "." + expect(TokenType::IDENTIFIER).lexeme;
+    }
 
     expect(TokenType::PUNCTUATION, "(");
     vector<ExprPtr> args;

@@ -1,0 +1,83 @@
+{
+  "scopeName": "source.qplc",
+  "name": "QPLC",
+  "fileTypes": ["q"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#constants" },
+    { "include": "#time-literals" },
+    { "include": "#numbers" },
+    { "include": "#strings" },
+    { "include": "#operators" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.number-sign.qplc", "match": "#.*$" },
+        { "name": "comment.block.qplc",
+          "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.qplc",
+          "match": "\\b(def|if|elif|else|while|for|in|return|break|continue|range)\\b" },
+        { "name": "keyword.operator.logical.qplc",
+          "match": "\\b(and|or|xor|not)\\b" },
+        { "name": "constant.language.boolean.qplc",
+          "match": "\\b(True|False)\\b" }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        { "name": "support.function.timer.qplc",
+          "match": "\\b(TON|TOF|TP|on_delay|off_delay|pulse)\\b" },
+        { "name": "support.function.counter.qplc",
+          "match": "\\b(CTU|CTD|CTUD|count_up|count_down|count_updown)\\b" },
+        { "name": "support.function.edge.qplc",
+          "match": "\\b(rising_edge|falling_edge)\\b" },
+        { "name": "support.function.math.qplc",
+          "match": "\\b(MIN|MAX|ABS|LIMIT|SEL|MUX|min|max|abs|clamp|sel|mux)\\b" }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        { "name": "constant.other.qplc",
+          "match": "\\b[A-Z][A-Z0-9_]*\\b" }
+      ]
+    },
+    "time-literals": {
+      "name": "constant.numeric.time.qplc",
+      "match": "T#[0-9]+(\\.[0-9]+)?(ms|s|m|h)\\b"
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.float.qplc",
+          "match": "\\b[0-9]+\\.[0-9]+\\b" },
+        { "name": "constant.numeric.integer.qplc",
+          "match": "\\b[0-9]+\\b" }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.qplc",
+      "begin": "\"", "end": "\""
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.comparison.qplc",
+          "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.assignment.qplc",
+          "match": "=" },
+        { "name": "keyword.operator.arithmetic.qplc",
+          "match": "\\+|-|\\*|/|%" }
+      ]
+    },
+    "identifiers": {
+      "name": "variable.other.qplc",
+      "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+    }
+  }
+}

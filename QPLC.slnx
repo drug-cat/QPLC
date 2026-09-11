@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="QPLC.Core/QPLC.Core.csproj" />
+  <Project Path="QPLC.Studio/QPLC.Studio.csproj" />
+  <Project Path="QPLCSimulator/QPLCSimulator.csproj" />
+  <Project Path="QPLCVisualSimulator/QPLCVisualSimulator.csproj" />
+</Solution>
