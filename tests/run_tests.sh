@@ -4,7 +4,12 @@
 set -u
 cd "$(dirname "$0")/.."
 
-QPLC=./build/qplc.exe
+# The binary is qplc.exe on Windows and qplc on Linux/macOS
+if [ -f ./build/qplc.exe ]; then
+    QPLC=./build/qplc.exe
+else
+    QPLC=./build/qplc
+fi
 CONF=examples/conf.qplc
 PASS=0
 FAIL=0
@@ -13,8 +18,8 @@ green() { printf "\033[32m%s\033[0m\n" "$1"; }
 red()   { printf "\033[31m%s\033[0m\n" "$1"; }
 
 if [ ! -f "$QPLC" ]; then
-    red "ERROR: qplc not built at build/qplc.exe"
-    red "Build first:  export PATH=\"/c/msys64/ucrt64/bin:\$PATH\" && cmake -S . -B build -G Ninja && cmake --build build"
+    red "ERROR: qplc not built at build/qplc or build/qplc.exe"
+    red "Build first:  cmake -S . -B build -G Ninja && cmake --build build"
     exit 1
 fi
 
@@ -103,16 +108,12 @@ fi
 
 # ---- Test 6: While + break generates conditional jump ----
 echo -n "[Codegen ] while_break conditional jmpn ... "
-if grep -q 'jmpn.*label="WHILE_END' /tmp/ex_while_break_test.xml 2>/dev/null; then
+$QPLC $CONF examples/while_break_test.q -o "$TMP/wbt.xml" 2>/dev/null
+if grep -q 'jmpn.*label="WHILE_END' "$TMP/wbt.xml" 2>/dev/null && \
+   grep -c 'jmpn.*label="WHILE_END' "$TMP/wbt.xml" | grep -qv '^1$'; then
     PASS=$((PASS+1)); green "PASS"
 else
-    $QPLC $CONF examples/while_break_test.q -o "$TMP/wbt.xml" 2>/dev/null
-    if grep -q 'jmpn.*label="WHILE_END' "$TMP/wbt.xml" 2>/dev/null && \
-       grep -c 'jmpn.*label="WHILE_END' "$TMP/wbt.xml" | grep -qv '^1$'; then
-        PASS=$((PASS+1)); green "PASS"
-    else
-        FAIL=$((FAIL+1)); red "FAIL"
-    fi
+    FAIL=$((FAIL+1)); red "FAIL"
 fi
 
 # ---- Test 7: SCL generation ----

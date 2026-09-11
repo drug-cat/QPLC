@@ -11,10 +11,9 @@ jobs:
     name: C++ (Windows MSYS2)
     runs-on: windows-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: msys2 {0}
     steps:
+      - uses: actions/checkout@v4
+
       - uses: msys2/setup-msys2@v2
         with:
           msystem: ucrt64
@@ -26,17 +25,14 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
 
-      - uses: actions/checkout@v4
-
       - name: Build
+        shell: msys2 {0}
         run: |
           cmake -S . -B build -G Ninja
-          cmake --build build --verbose
-
-      - name: Verify binary
-        run: ./build/qplc.exe --version || true
+          cmake --build build
 
       - name: Run tests
+        shell: msys2 {0}
         run: bash tests/run_tests.sh
 
       - name: Upload qplc.exe
