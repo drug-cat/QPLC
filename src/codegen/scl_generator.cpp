@@ -14,6 +14,17 @@ using namespace std;
 
 namespace {
 
+// Convert a match pattern (enum name, "_", or numeric literal) to a literal value.
+static string normalizePatternToValue(const string& pat) {
+    if (pat == "_") return "ELSE";
+    if (!pat.empty() && (isdigit(static_cast<unsigned char>(pat[0])) || pat[0] == '-')) {
+        return pat;
+    }
+    // Enum name → ordinal unknown at codegen stage; use 0
+    // (semantic layer assigns enum ordinals; SCL treats names via config tags)
+    return "0";
+}
+
 // ------------------------------------------------------------
 // Helper: converts an AST expression to SCL text
 // ------------------------------------------------------------
@@ -161,6 +172,20 @@ static string exprToScl(const Expr& expr, const Config* configPtr = nullptr) {
     } else if (auto attr = dynamic_cast<const AttributeExpr*>(&expr)) {
         // In SCL, member access such as timer1.Q is not supported; instance.Q is used instead
         return attr->objectName + "." + attr->attrName;
+    } else if (auto field = dynamic_cast<const FieldAccessExpr*>(&expr)) {
+        return exprToScl(*field->object, configPtr) + "." + field->field;
+    } else if (auto str = dynamic_cast<const StringExpr*>(&expr)) {
+        // SCL string literal with escaped quotes
+        string esc;
+        for (char ch : str->value) {
+            if (ch == '\'') esc += "''";
+            else if (ch == '\\') esc += "\\\\";
+            else esc += ch;
+        }
+        return "'" + esc + "'";
+    } else if (auto lit = dynamic_cast<const StructLiteralExpr*>(&expr)) {
+        // Struct literal: emit non-field defaults as a comment; fields handled by assignments
+        return "StructInit";
     }
     return "?";
 }
@@ -570,6 +595,64 @@ void generateSclStmt(ostream& out, const Stmt& stmt, const Config& config, int i
     }
     else if (dynamic_cast<const ContinueStmt*>(&stmt)) {
         out << ind << "CONTINUE;\n"; // SCL equivalent of continue
+    }
+    else if (auto fieldAssign = dynamic_cast<const FieldAssignmentStmt*>(&stmt)) {
+        // struct field assignment: obj.field := expr
+        string obj = exprToScl(*fieldAssign->object, &config);
+        out << ind << obj << "." << fieldAssign->field
+            << " := " << exprToScl(*fieldAssign->expr, &config) << ";\n";
+    }
+    else if (auto matchStmt = dynamic_cast<const MatchStmt*>(&stmt)) {
+        // match → SCL CASE statement
+        out << ind << "CASE " << exprToScl(*matchStmt->scrutinee, &config) << " OF\n";
+        for (const auto& c : matchStmt->cases) {
+            if (c.pattern == "_") {
+                out << ind << "ELSE\n";
+            } else {
+                out << ind << "  " << normalizePatternToValue(c.pattern) << ":\n";
+            }
+            for (const auto& s : c.body) {
+                generateSclStmt(out, *s, config, indent + 4, timerTypeOf, counterTypeOf, funcMap, callDepth);
+            }
+        }
+        out << ind << "END_CASE;\n";
+    }
+    else if (auto tryStmt = dynamic_cast<const TryStmt*>(&stmt)) {
+        // SCL has no exceptions; lower try/except to:
+        //   try-block; IF QPLC_ERR THEN handler; END_IF; finally-block
+        for (const auto& s : tryStmt->tryBlock) {
+            generateSclStmt(out, *s, config, indent, timerTypeOf, counterTypeOf, funcMap, callDepth);
+        }
+        if (!tryStmt->handlers.empty()) {
+            out << ind << "IF QPLC_ERR THEN\n";
+            for (const auto& clause : tryStmt->handlers) {
+                for (const auto& s : clause.body) {
+                    generateSclStmt(out, *s, config, indent + 4, timerTypeOf, counterTypeOf, funcMap, callDepth);
+                }
+                break; // SCL: only first (or catch-all) handler runs in this model
+            }
+            out << ind << "END_IF;\n";
+        }
+        for (const auto& s : tryStmt->finallyBlock) {
+            generateSclStmt(out, *s, config, indent, timerTypeOf, counterTypeOf, funcMap, callDepth);
+        }
+    }
+    else if (auto raiseStmt = dynamic_cast<const RaiseStmt*>(&stmt)) {
+        // raise → set error coil + store message
+        out << ind << "QPLC_ERR := TRUE;\n";
+        if (raiseStmt->message) {
+            out << ind << "QPLC_ERR_MSG := " << exprToScl(*raiseStmt->message, &config) << ";\n";
+        }
+    }
+    else if (auto retStmt = dynamic_cast<const ReturnStmt*>(&stmt)) {
+        // User functions are VOID; return stores into a temp var when valued
+        if (retStmt->hasValue && retStmt->value) {
+            out << ind << "__QPLC_RET := " << exprToScl(*retStmt->value, &config) << ";\n";
+        }
+        out << ind << "RETURN;\n";
+    }
+    else if (dynamic_cast<const MatchExpr*>(&stmt)) {
+        out << ind << "(* match expression *)"; // handled via expression path
     }
 }
 

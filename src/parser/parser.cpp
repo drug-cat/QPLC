@@ -197,8 +197,16 @@ StmtPtr Parser::parseMatchStmt() {
         }
         advance();  // consume 'case'
 
-        // Pattern may have associated variables: Pattern(a, b)
-        string pattern = expect(TokenType::IDENTIFIER).lexeme;
+        // Pattern may be an identifier (enum name), a numeric literal (case 0:),
+        // or a wildcard "_". Tuple patterns carry extracted variables: Pattern(a, b)
+        string pattern;
+        if (check(TokenType::IDENTIFIER)) {
+            pattern = advance().lexeme;
+        } else if (check(TokenType::INTEGER) || check(TokenType::FLOAT)) {
+            pattern = advance().lexeme;   // literal pattern
+        } else {
+            parseError(current(), "expected pattern (identifier, literal, or '_') in match");
+        }
         vector<string> vars;
         if (check(TokenType::PUNCTUATION, "(")) {
             advance();
@@ -536,6 +544,9 @@ StmtPtr Parser::parseAssignment() {
 
     expect(TokenType::OPERATOR, "=");
     auto expr = parseExpression();
+
+    // Simple statement is always terminated by NEWLINE (lexer emits NEWLINE after each content line)
+    expect(TokenType::NEWLINE);
 
     // Determine assignment kind: simple, index, or field
     if (auto fieldAccess = dynamic_cast<FieldAccessExpr*>(lhs.get())) {

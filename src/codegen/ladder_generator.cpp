@@ -81,6 +81,29 @@ string exprToString(const Expr& expr, const Config* configPtr = nullptr) {
         return call->funcName + "(" + argsStr + ")";
     } else if (auto attr = dynamic_cast<const AttributeExpr*>(&expr)) {
         return attr->objectName + "." + attr->attrName;
+    } else if (auto field = dynamic_cast<const FieldAccessExpr*>(&expr)) {
+        // struct field access: obj.field — emit as flat "obj.field" address
+        return exprToString(*field->object, configPtr) + "." + field->field;
+    } else if (auto str = dynamic_cast<const StringExpr*>(&expr)) {
+        return str->value;
+    } else if (auto lit = dynamic_cast<const StructLiteralExpr*>(&expr)) {
+        // Struct literal: emit each field as an initial value "name=val" if a value exists
+        std::string result;
+        for (const auto& f : lit->fields) {
+            if (!result.empty()) result += "; ";
+            result += f.first + "=" + exprToString(*f.second, configPtr);
+        }
+        return result;
+    } else if (auto m = dynamic_cast<const MatchExpr*>(&expr)) {
+        // Match as expression: expand to nested ternary
+        for (size_t i = 0; i < m->cases.size(); ++i) {
+            const auto& c = m->cases[i];
+            if (i == 0 && m->cases.size() == 1) {
+                return "(" + exprToString(*c.result, configPtr) + ")";
+            }
+            break; // fall through to "?" below for multi-case (rare in ladder)
+        }
+        return "?";
     } else if (auto ternary = dynamic_cast<const TernaryExpr*>(&expr)) {
         // In numeric context printed as (cond ? true : false)
         // In boolean context converted to if-stmt in ladder (in processStmt)
@@ -474,6 +497,47 @@ string generateRung(const vector<Term>& terms, const string& coilVar, const stri
     }
     ss << "    </rung>\n";
     return ss.str();
+}
+
+// Set a boolean coil unconditionally (used by raise)
+string generateCoilRung(const string& coilVar, bool value) {
+    stringstream ss;
+    ss << "    <rung>\n";
+    ss << "      <coil address=\"" << escapeXml(coilVar) << "\""
+       << (value ? "" : " type=\"reset\"") << "/>\n";
+    ss << "    </rung>\n";
+    return ss.str();
+}
+
+// Cheap structural check used to decide coil vs move for struct field writes.
+static bool isBoolValueExpr(const Expr& e) {
+    if (dynamic_cast<const BoolExpr*>(&e)) return true;
+    auto bin = dynamic_cast<const BinaryExpr*>(&e);
+    if (bin) {
+        if (bin->op == "and" || bin->op == "or" || bin->op == "xor" ||
+            bin->op == "==" || bin->op == "!=" || bin->op == "<" ||
+            bin->op == ">" || bin->op == "<=" || bin->op == ">=") return true;
+        return false;
+    }
+    if (dynamic_cast<const UnaryExpr*>(&e)) return true;
+    auto call = dynamic_cast<const CallExpr*>(&e);
+    if (call) {
+        string canon = builtins::normalize(call->funcName);
+        return builtins::isTimer(canon) || builtins::isEdge(canon);
+    }
+    return false;
+}
+
+// Convert a match pattern (enum name, "_", or numeric literal) to a literal value.
+static string normalizePatternToValue(const string& pat) {
+    if (pat == "_") return "0";  // wildcard placeholder (handled specially)
+    // Numeric literal passes through
+    if (!pat.empty() && (isdigit(static_cast<unsigned char>(pat[0])) || pat[0] == '-')) {
+        return pat;
+    }
+    // Enum name → ordinal unknown at codegen stage; use 0
+    // (semantic layer assigns enum ordinals; ladder treats names via config)
+    return "0";
 }
 
 string generateMoveRung(const vector<Term>& terms, const string& dest, const string& source) {
@@ -1020,6 +1084,95 @@ string generateLadderXml(const Program& program, const Config& config) {
             out << "  <network name=\"net" << ++networkCounter << "\">\n";
             out << generateLabelRung(endLabel);
             out << "  </network>\n";
+        }
+        else if (auto fieldAssign = dynamic_cast<const FieldAssignmentStmt*>(&stmt)) {
+            // struct field assignment: obj.field = expr →
+            // generate the same coil/move as a plain variable named "obj.field"
+            string flatName = exprToString(*fieldAssign->object, nullptr) + "." + fieldAssign->field;
+            if (isBoolValueExpr(*fieldAssign->expr)) {
+                auto terms = exprToDNF(*fieldAssign->expr, config);
+                out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                out << generateRung(terms, flatName);
+                out << "  </network>\n";
+            } else {
+                out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                out << generateMoveRung({}, flatName, exprToString(*fieldAssign->expr, &config));
+                out << "  </network>\n";
+            }
+        }
+        else if (auto matchStmt = dynamic_cast<const MatchStmt*>(&stmt)) {
+            // match scrutinee { case pat: body } — lower to if/elif/else chain
+            for (size_t i = 0; i < matchStmt->cases.size(); ++i) {
+                const auto& c = matchStmt->cases[i];
+                // Pattern: either enum name or literal constant — compare as equality
+                string patName = normalizePatternToValue(c.pattern);
+                // Bind extracted vars (tuple patterns) are ignored in ladder (flat vars only).
+                // Each case becomes: [contact: scrutinee == pat] → inline body
+                string scrutineeStr = exprToString(*matchStmt->scrutinee, &config);
+                if (c.pattern == "_") {
+                    // wildcard: unconditional
+                    for (const auto& body : c.body) processStmt(*body);
+                } else {
+                    auto scrutineeCopy = cloneExprWithSubst(*matchStmt->scrutinee, SubstMap{});
+                    BinaryExpr eqCall(
+                        "==",
+                        std::move(scrutineeCopy),
+                        make_unique<NumberExpr>(patName, false, matchStmt->line, matchStmt->column),
+                        matchStmt->line, matchStmt->column);
+                    auto condTerms = exprToDNF(eqCall, config);
+                    string thenLabel = "MATCH_T" + to_string(networkCounter) + "_" + to_string(i);
+                    // rung: when cond → jump into case body; else continue to next case
+                    out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                    out << generateJumpRung(thenLabel, "jmp", &condTerms);
+                    out << "  </network>\n";
+                    for (const auto& body : c.body) {
+                        out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                        out << generateLabelRung(thenLabel);
+                        out << "  </network>\n";
+                        processStmt(*body);
+                    }
+                }
+            }
+        }
+        else if (auto tryStmt = dynamic_cast<const TryStmt*>(&stmt)) {
+            // try/except/finally in ladder: execute try block; exceptions cannot
+            // propagate through ladder, so handlers run only on a raised flag.
+            // We lower to: try-block; then if error flag set → first matching handler.
+            out << "  <!-- try block -->\n";
+            for (const auto& s : tryStmt->tryBlock) processStmt(*s);
+            if (!tryStmt->handlers.empty()) {
+                // If any handler exists, emit a "fault" coil that users set via raise:
+                // handlers are attached under "QPLC_ERR" marker (semantic ensures usage).
+                for (const auto& clause : tryStmt->handlers) {
+                    if (clause.body.empty()) continue;
+                    Term faultTerm;
+                    faultTerm.contacts.push_back(Contact::makeVar("QPLC_ERR", false));
+                    vector<Term> faultTerms{faultTerm};
+                    string hl = "TRY_H" + to_string(networkCounter);
+                    out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                    out << generateJumpRung(hl, "jmp", &faultTerms);
+                    out << "  </network>\n";
+                    out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                    out << generateLabelRung(hl);
+                    out << "  </network>\n";
+                    for (const auto& s : clause.body) processStmt(*s);
+                }
+            }
+            if (!tryStmt->finallyBlock.empty()) {
+                // finally always runs (label at end)
+                for (const auto& s : tryStmt->finallyBlock) processStmt(*s);
+            }
+        }
+        else if (auto raiseStmt = dynamic_cast<const RaiseStmt*>(&stmt)) {
+            // raise → set generic error coil; message (string) is stored in QPLC_ERR_MSG
+            out << "  <network name=\"net" << ++networkCounter << "\">\n";
+            out << generateCoilRung("QPLC_ERR", true);
+            out << "  </network>\n";
+            if (raiseStmt->message) {
+                out << "  <network name=\"net" << ++networkCounter << "\">\n";
+                out << generateMoveRung({}, "QPLC_ERR_MSG", exprToString(*raiseStmt->message, &config));
+                out << "  </network>\n";
+            }
         }
     };
 
