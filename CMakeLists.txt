@@ -39,6 +39,50 @@ target_include_directories(qplc
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# ── Optional: QPLC ↔ PLCSIM Advanced bridge (Windows only) ───────────────────
+# Builds a small C DLL exposing a flat C API that QPLC.PlcSimAdapter (C#)
+# P/Invokes. Requires the Siemens SimulationRuntimeApi.h header; on machines
+# without PLCSIM Advanced the target is simply skipped.
+if(WIN32)
+    # "ProgramFiles(x86)" cannot be read via $ENV{...} in CMake syntax,
+    # so we try the common default locations directly.
+    set(_plcsim_api_root "C:/Program Files (x86)/Common Files/Siemens/PLCSIMADV/API")
+
+    set(QPLC_PLCSIM_API_HEADER "" CACHE FILEPATH "Path to SimulationRuntimeApi.h (Siemens PLCSIM Advanced)")
+    if(NOT QPLC_PLCSIM_API_HEADER)
+        file(GLOB _api_dirs "${_plcsim_api_root}/*")
+        if(_api_dirs)
+            list(SORT _api_dirs)
+            list(REVERSE _api_dirs)   # highest version first
+            list(GET _api_dirs 0 _api_latest)
+            set(QPLC_PLCSIM_API_HEADER "${_api_latest}/SimulationRuntimeApi.h")
+        endif()
+    endif()
+
+    if(EXISTS "${QPLC_PLCSIM_API_HEADER}")
+        add_library(qplc_plcsim_bridge SHARED
+            QPLC.PlcSimAdapter/native/qplc_plcsim_bridge.cpp
+        )
+        target_compile_definitions(qplc_plcsim_bridge PRIVATE
+            QPLC_PLCSIM_API_HEADER="${QPLC_PLCSIM_API_HEADER}"
+        )
+        target_include_directories(qplc_plcsim_bridge PUBLIC
+            QPLC.PlcSimAdapter/native
+        )
+        target_link_libraries(qplc_plcsim_bridge PRIVATE Shlwapi)
+        if(MSVC)
+            target_compile_options(qplc_plcsim_bridge PRIVATE /W4)
+        else()
+            target_compile_options(qplc_plcsim_bridge PRIVATE -Wall -Wextra)
+        endif()
+        message(STATUS "qplc_plcsim_bridge: PLCSIM Advanced API found — bridge enabled")
+    else()
+        message(STATUS "qplc_plcsim_bridge: SimulationRuntimeApi.h not found — bridge skipped")
+    endif()
+else()
+    message(STATUS "qplc_plcsim_bridge: PLCSIM Advanced not detected — bridge skipped")
+endif()
+
 # Static link on Windows so the .exe runs from any terminal without needing
 # ucrt64/bin DLLs to be on PATH.
 if(WIN32)
@@ -48,9 +92,6 @@ if(WIN32)
         -static-libstdc++
     )
 endif()
-
-# ── Install rules ────────────────────────────────────────────────────────────
-include(GNUInstallDirs)
 
 install(TARGETS qplc
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

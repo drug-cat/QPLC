@@ -1,0 +1,12 @@
+[hardware]
+cpu = S7-1507
+ip = 192.168.0.1
+
+[constants]
+BASE_SPEED = 1000
+
+[io]
+start_btn = I0.0:BOOL
+stop_btn  = I0.1:BOOL
+motor_run = Q0.0:BOOL
+speed_ref = QW80:INT
