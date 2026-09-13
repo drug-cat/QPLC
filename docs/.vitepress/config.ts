@@ -23,6 +23,22 @@ export default defineConfig({
         ],
       },
       {
+        text: 'کتاب',
+        items: [
+          { text: 'مقدمه', link: '/book/' },
+          { text: 'فصل ۱ — شروع', link: '/book/ch01-getting-started' },
+          { text: 'فصل ۲ — مفاهیم پایه', link: '/book/ch02-basic-concepts' },
+          { text: 'فصل ۳ — کنترل جریان', link: '/book/ch03-control-flow' },
+          { text: 'فصل ۴ — توابع', link: '/book/ch04-functions' },
+          { text: 'فصل ۵ — تایمر/شمارنده', link: '/book/ch05-timers-counters' },
+          { text: 'فصل ۶ — struct/enum', link: '/book/ch06-struct-enum' },
+          { text: 'فصل ۷ — رشته‌ها', link: '/book/ch07-strings' },
+          { text: 'فصل ۸ — ماژول‌ها', link: '/book/ch08-modules' },
+          { text: 'فصل ۹ — مدیریت خطا', link: '/book/ch09-errors' },
+          { text: 'فصل ۱۰ — پروژه واقعی', link: '/book/ch10-real-project' },
+        ],
+      },
+      {
         text: 'API',
         items: [
           { text: '.NET (QPLC.Core)', link: '/api/dotnet' },
