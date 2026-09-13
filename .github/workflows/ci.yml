@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -36,7 +36,7 @@ jobs:
         run: bash tests/run_tests.sh
 
       - name: Upload qplc.exe
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qplc-windows
           path: build/qplc.exe
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -66,7 +66,7 @@ jobs:
         run: bash tests/run_tests.sh
 
       - name: Upload qplc
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qplc-linux
           path: build/qplc
@@ -78,10 +78,10 @@ jobs:
     timeout-minutes: 15
     needs: build-cpp-ubuntu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download qplc (Linux)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: qplc-linux
           path: build
@@ -93,7 +93,7 @@ jobs:
         run: ./build/qplc --version || true
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
 
