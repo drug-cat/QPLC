@@ -5,27 +5,34 @@ All notable changes to QPLC will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-08-29
 
-### Added
-- `return [expr]` statement (semantic + codegen)
-- Python-style ternary operator: `trueExpr if cond else falseExpr`
-- IEC 61131-3 math functions: `MIN/MAX/ABS/LIMIT/SEL/MUX` (with QPLC aliases `min/max/abs/clamp/sel/mux`)
-- `QPLC.Core` shared class library (eliminates 3x duplication across simulators)
-- Modbus TCP server in QPLC.Core (FC 1/2/3/5/6/15/16)
-- Time-travel trace replay (1000-scan circular buffer)
-- QPLC.Studio — cross-platform Avalonia IDE
-- Language Server Protocol: `qplc --lsp`
-- VS Code extension scaffold (TextMate grammar + language config)
-- New examples: `return_test.q`, `ternary_test.q`, `stdlib_test.q`
-- New tests (32 total, up from 24)
+### Added — language
+- `struct` / `enum` user-defined types with field access & struct literals
+- `match` statement with literal/wildcard patterns (ladder + SCL codegen)
+- `try` / `except` / `finally` / `raise` error handling
+- String literals (`"..."`), `len`/`print`/`type` builtins, string slices
+- Module system: `import "file.q" [as alias]` with recursive resolution
+- Field assignment (`obj.field = expr`) and namespaced calls (`m.fn(...)`)
 
-### Changed
-- SCL codegen now normalizes math functions: `clamp → LIMIT(IN, MN, MX)`, etc.
-- All simulators share QPLC.Core for parser/simulator/Modbus
+### Added — TIA Portal integration
+- **QPLC.PlcSimAdapter**: Hardware-in-the-Loop bridge to Siemens PLCSIM
+  Advanced (S7-1500, API v1.0–6.0). Native C bridge + .NET P/Invoke driver;
+  runs QPLC scans synchronized with the virtual PLC's I/O.
+- CMake auto-detect + build of `libqplc_plcsim_bridge.dll` when PLCSIM is
+  installed (skipped otherwise)
 
-### Removed
-- ~900 lines of duplicated C# code (consolidated into QPLC.Core)
+### Added — platform/CI
+- 34/34 integration tests (was 32)
+- New examples: `struct_enum_test.q`, `match_test.q`, `plcsim_demo.q`
+- GitHub Actions: CI matrix (Windows MSYS2 + Ubuntu + .NET), VitePress
+  docs deploy to GitHub Pages, release workflow
+- VitePress documentation incl. 10-chapter "QPLC Book" (Rust-Book style)
+
+### Fixed
+- Cross-platform `tests/run_tests.sh` (binary name `qplc` vs `qplc.exe`)
+- CI: artifact passing between jobs; msys2 shell scoping
+- `.zcode/` session artifacts excluded from the repository
 
 ## [0.1.0] — 2026-08-28
 
