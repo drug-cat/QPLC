@@ -45,7 +45,7 @@ modbus.Start();
 
 ## Documentation
 
-Full documentation: https://github.com/YOUR_USERNAME/QPLC
+Full documentation: https://github.com/drug-cat/QPLC
 
 ## License
 
